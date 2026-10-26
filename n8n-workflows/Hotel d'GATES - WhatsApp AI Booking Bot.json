@@ -1,0 +1,3433 @@
+{
+  "name": "Hotel d'GATES - WhatsApp AI Booking Bot",
+  "nodes": [
+    {
+      "parameters": {
+        "updates": [
+          "messages"
+        ],
+        "options": {}
+      },
+      "id": "f12ee8af-df64-4fcb-8657-70d473d3082c",
+      "name": "Customer sends WhatsApp message",
+      "type": "n8n-nodes-base.whatsAppTrigger",
+      "typeVersion": 1,
+      "position": [
+        304,
+        832
+      ],
+      "notesInFlow": true,
+      "webhookId": "23dd7b01-72b3-4eb8-833c-a5cb0b8ab8e0",
+      "credentials": {
+        "whatsAppTriggerApi": {
+          "id": "Vn0gHsKHGsTWF2w9",
+          "name": "WhatsApp OAuth account"
+        }
+      },
+      "notes": "Starts the flow for every incoming message."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "has-customer-message",
+              "leftValue": "={{ Array.isArray($json.messages) && $json.messages.length > 0 && !!$json.messages[0].from && !$json.statuses }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "7d0697f6-2557-4062-bae5-0f80eb6b0539",
+      "name": "Only real customer messages (ignore status updates)",
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2.2,
+      "position": [
+        528,
+        832
+      ],
+      "notesInFlow": true,
+      "notes": "WhatsApp also sends sent/delivered/read status updates to this trigger. Without this filter the bot answers its own status updates in a loop."
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a213dc45-ec81-4395-8af2-88c99f3e666a",
+              "name": "userMessage",
+              "value": "={{ $json.messages[0].text?.body ?? $json.messages[0].image?.caption ?? $json.messages[0].document?.caption ?? '' }}",
+              "type": "string"
+            },
+            {
+              "id": "187fed86-6280-45dd-a331-4c34c696a179",
+              "name": "toNumber",
+              "value": "={{ $json.metadata.phone_number_id }}",
+              "type": "string"
+            },
+            {
+              "id": "28c1a28e-df00-4771-bc28-7b1b15d9545a",
+              "name": "messageType",
+              "value": "={{ $json.messages[0].type }}",
+              "type": "string"
+            },
+            {
+              "id": "2380e704-d7e8-4810-8c6f-ec2f89d52e6d",
+              "name": "fromNumber",
+              "value": "={{ $json.contacts[0].wa_id }}",
+              "type": "string"
+            },
+            {
+              "id": "4f65506d-09f8-4adb-996f-0c74168635cf",
+              "name": "resturantId",
+              "value": "resturant-1",
+              "type": "string"
+            },
+            {
+              "id": "6e123b8a-1d37-4d96-8d24-c47a4ecd59e0",
+              "name": "mediaId",
+              "value": "={{ $json.messages[0].audio?.id ?? $json.messages[0].image?.id ?? $json.messages[0].video?.id ?? $json.messages[0].document?.id ?? '' }}",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "id": "cb9e7b30-6fbe-4744-aa8a-bb07f546b314",
+      "name": "Read message details",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        752,
+        832
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "image-media-condition",
+              "leftValue": "={{ $json.messageType }}",
+              "rightValue": "image",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "video-media-condition",
+              "leftValue": "={{ $json.messageType }}",
+              "rightValue": "video",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "document-media-condition",
+              "leftValue": "={{ $json.messageType }}",
+              "rightValue": "document",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "or"
+        },
+        "looseTypeValidation": true,
+        "options": {
+          "ignoreCase": true
+        }
+      },
+      "id": "68b76aa6-65f9-4b11-b70d-e35592f7a1ed",
+      "name": "Is it a photo or file?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1056,
+        832
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://magenta-yak-337378.hostingersite.com/api/bookings/payment-screenshot",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"restaurantId\": \"restaurant-1\",\n  \"customerPhone\": \"{{ $('Read message details').first().json.fromNumber }}\",\n  \"mediaId\": \"{{ $('Read message details').first().json.mediaId }}\",\n  \"mediaType\": \"{{ $('Read message details').first().json.messageType }}\",\n  \"caption\": \"{{ $('Read message details').first().json.userMessage }}\"\n}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "385efe7d-20a7-487b-8c09-fc36cc206939",
+      "name": "Save photo/file in CRM",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        448,
+        1456
+      ],
+      "notesInFlow": true,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "Wz9ioRvsKWLXFBlA",
+          "name": "Header Auth account"
+        }
+      },
+      "onError": "continueErrorOutput",
+      "notes": "Uploads the file and saves it in the chat history. Links it to the open booking."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "043df19b-82b4-4af6-a66d-dd4b8f6a4bcb",
+              "leftValue": "={{ String($json.attachedToBooking) }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {
+          "ignoreCase": true
+        }
+      },
+      "id": "0a1e7d00-be6f-442b-9891-ed7fec27c5b4",
+      "name": "Is it a payment proof for a booking?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        752,
+        1456
+      ],
+      "notesInFlow": true,
+      "notes": "YES: booking moves to Pending payment verification and CS gets the screenshot."
+    },
+    {
+      "parameters": {
+        "operation": "send",
+        "phoneNumberId": "={{ $('Read message details').first().json.toNumber }}",
+        "recipientPhoneNumber": "={{ '+' + $('Read message details').first().json.fromNumber }}",
+        "textBody": "={{ $('Save photo/file in CRM').first().json.customerReply }}",
+        "additionalFields": {}
+      },
+      "id": "11f35819-3a23-45d8-ac0a-c4cc718a31e0",
+      "name": "Reply: payment proof received",
+      "type": "n8n-nodes-base.whatsApp",
+      "typeVersion": 1.1,
+      "position": [
+        1056,
+        1456
+      ],
+      "webhookId": "91048295-176a-4f45-836a-c4e9964f2206",
+      "credentials": {
+        "whatsAppApi": {
+          "id": "7jEgcxbHmIsq6HBM",
+          "name": "WhatsApp account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "send",
+        "phoneNumberId": "={{ $('Read message details').first().json.toNumber }}",
+        "recipientPhoneNumber": "={{ '+' + $('Read message details').first().json.fromNumber }}",
+        "textBody": "We received your file and saved it for our team to review. Thank you.",
+        "additionalFields": {}
+      },
+      "id": "a9149e8a-c34d-4023-b01e-ee22f81b9ae7",
+      "name": "Reply: file received",
+      "type": "n8n-nodes-base.whatsApp",
+      "typeVersion": 1.1,
+      "position": [
+        1056,
+        1632
+      ],
+      "webhookId": "4b8e1831-4ddd-4bd8-93ec-4981491d335f",
+      "credentials": {
+        "whatsAppApi": {
+          "id": "7jEgcxbHmIsq6HBM",
+          "name": "WhatsApp account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://magenta-yak-337378.hostingersite.com/api/agent-requests/from-whatsapp",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { restaurantId: 'restaurant-1', phone: $('Read message details').first().json.fromNumber, message: (() => { try { return $('Final customer message').first().json.userMessage || ''; } catch (e) { return ''; } })(), reason: 'bot_handoff' } }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "b2deb3d3-e213-4ecc-8402-4cefedc7e8cb",
+      "name": "Create Human Agent Request in CRM",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        752,
+        4432
+      ],
+      "notesInFlow": true,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "Wz9ioRvsKWLXFBlA",
+          "name": "Header Auth account"
+        }
+      },
+      "onError": "continueRegularOutput",
+      "notes": "Shows the customer on the Human Agent Requests page."
+    },
+    {
+      "parameters": {
+        "operation": "send",
+        "phoneNumberId": "={{ $('Read message details').first().json.toNumber }}",
+        "recipientPhoneNumber": "={{ '+' + $('Read message details').first().json.fromNumber }}",
+        "textBody": "Thank you!    We're connecting you to a human agent right now. Please hold for just a moment. 🙏",
+        "additionalFields": {}
+      },
+      "id": "24539480-7b96-42b3-9d5d-d7ddb4c9e5f5",
+      "name": "Reply: connecting you to a person",
+      "type": "n8n-nodes-base.whatsApp",
+      "typeVersion": 1.1,
+      "position": [
+        1056,
+        4432
+      ],
+      "webhookId": "46798660-ae7d-41c9-a1b4-aefe10b7ba59",
+      "credentials": {
+        "whatsAppApi": {
+          "id": "7jEgcxbHmIsq6HBM",
+          "name": "WhatsApp account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "send",
+        "phoneNumberId": "1158115170708020",
+        "recipientPhoneNumber": "+923278140188",
+        "textBody": "=*Customer needs a human agent*\nWhatsApp: +{{ $('Read message details').first().json.fromNumber }}\nMessage: {{ $('Read message details').first().json.userMessage }}\n\nOpen the CRM > Human Agent Requests to take over.",
+        "additionalFields": {}
+      },
+      "id": "5beeb7a6-61fe-4c95-9292-870efae2c922",
+      "name": "Alert CS team on WhatsApp",
+      "type": "n8n-nodes-base.whatsApp",
+      "typeVersion": 1.1,
+      "position": [
+        1344,
+        4432
+      ],
+      "notesInFlow": true,
+      "webhookId": "81edbf7a-d6b9-4f15-b3e1-bc3f17672662",
+      "credentials": {
+        "whatsAppApi": {
+          "id": "7jEgcxbHmIsq6HBM",
+          "name": "WhatsApp account"
+        }
+      },
+      "notes": "Sends the CS team the customer number and message."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://magenta-yak-337378.hostingersite.com/api/chats/whatsapp",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { fromNumber: $('Final customer message').first().json.fromNumber, customerMessage: $('Final customer message').first().json.userMessage || '', botReply: String($node[\"Reply: connecting you to a person\"].parameter.textBody || ''), restaurantId: 'restaurant-1' } }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "text"
+            }
+          }
+        }
+      },
+      "id": "a5951d5a-6f18-4af3-8b51-23aba8db9cbe",
+      "name": "Save hand-off in chat history",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1344,
+        4608
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "cacb55cb-5dbb-43f6-96b1-1eb95fdd43e4",
+              "leftValue": "={{ $json.messageType }}",
+              "rightValue": "audio",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {
+          "ignoreCase": true
+        }
+      },
+      "id": "e0bedc6c-3c8f-45a7-9706-4c47e0205a7a",
+      "name": "Is it a voice note?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1344,
+        832
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://graph.facebook.com/v18.0/{{ $('Read message details').first().json.mediaId }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "whatsAppApi",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "d4e45cbb-c0e1-4405-b4bc-c2cfe6578cea",
+      "name": "Get voice note link",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1648,
+        832
+      ],
+      "credentials": {
+        "whatsAppApi": {
+          "id": "7jEgcxbHmIsq6HBM",
+          "name": "WhatsApp account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.url }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "whatsAppApi",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
+        }
+      },
+      "id": "3d12d1b8-8dc7-4290-a871-317119168aaa",
+      "name": "Download voice note",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1952,
+        832
+      ],
+      "credentials": {
+        "whatsAppApi": {
+          "id": "7jEgcxbHmIsq6HBM",
+          "name": "WhatsApp account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "audio",
+        "modelId": {
+          "__rl": true,
+          "value": "models/gemini-2.5-flash",
+          "mode": "list",
+          "cachedResultName": "models/gemini-2.5-flash"
+        },
+        "inputType": "binary",
+        "options": {}
+      },
+      "id": "b4091cbb-6798-4288-86cf-bdbec11aeec0",
+      "name": "Voice note to text",
+      "type": "@n8n/n8n-nodes-langchain.googleGemini",
+      "typeVersion": 1.1,
+      "position": [
+        2256,
+        832
+      ],
+      "credentials": {
+        "googlePalmApi": {
+          "id": null,
+          "name": "",
+          "__aiGatewayManaged": true
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "ecbbaef5-f3f4-4fff-a449-2d29c0c08348",
+              "name": "userMessage",
+              "value": "={{ $json.content.parts[0].text }}",
+              "type": "string"
+            },
+            {
+              "id": "4234b4ee-3cdf-4d25-a8de-5cd34550e0ee",
+              "name": "fromNumber",
+              "value": "={{ $('Read message details').first().json.fromNumber }}",
+              "type": "string"
+            },
+            {
+              "id": "43d1ae84-75cc-40fc-8a75-60844fcaf47c",
+              "name": "restaurantId",
+              "value": "restaurant-1",
+              "type": "string"
+            },
+            {
+              "id": "29134922-1c7d-49c4-bbeb-59a3688c7150",
+              "name": "toNumber",
+              "value": "={{ $('Read message details').first().json.toNumber }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "1e609d63-42b2-463f-bf3e-95c313c4791e",
+      "name": "Use voice text",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2544,
+        832
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a9b9e0d1-c0b2-4f60-9801-111f339733a4",
+              "name": "userMessage",
+              "value": "={{ $('Read message details').first().json.userMessage }}",
+              "type": "string"
+            },
+            {
+              "id": "1c8d9044-f569-479a-99ac-75aef8600352",
+              "name": "fromNumber",
+              "value": "={{ $('Read message details').first().json.fromNumber }}",
+              "type": "string"
+            },
+            {
+              "id": "d6664a1e-1c27-4b56-a2b3-3ea681cf99a4",
+              "name": "toNumber",
+              "value": "={{ $('Read message details').first().json.toNumber }}",
+              "type": "string"
+            },
+            {
+              "id": "1b2e8297-8c7a-4051-92bb-cbccc6b97f9e",
+              "name": "restaurantId",
+              "value": "restaurant-1",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "d22a13f4-0295-464a-9af6-b85d6d51f4fd",
+      "name": "Use typed text",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1648,
+        992
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 1 · Understand the message\nEvery WhatsApp message starts here. Typed text goes straight on. Voice notes are turned into text. Photos and files take the lane below.",
+        "height": 510,
+        "width": 3260,
+        "color": 7
+      },
+      "id": "06e65085-5705-47ab-966f-7ef2d5af192b",
+      "name": "Section 1",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        240,
+        704
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 2 · Photos, files and payment proofs\nA photo or PDF is saved in the CRM. If the customer has an open booking it is treated as the payment proof: the CRM moves the booking to Pending payment verification, alerts the CS team on WhatsApp and the customer is told to wait.",
+        "height": 510,
+        "width": 1160,
+        "color": 3
+      },
+      "id": "9cc848f5-4667-49c7-8af2-b9d778c858c2",
+      "name": "Section 2",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        240,
+        1328
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 3 · Checks before the AI answers\n(a) If a person has taken over this chat, the bot stays silent and the message is only saved for the agent. (b) If the customer refuses the 20% advance, the CRM saves the reason, the CS team is alerted and the customer gets a polite reply.",
+        "height": 510,
+        "width": 2360,
+        "color": 5
+      },
+      "id": "29382e35-fd55-4fbc-a0df-ab5d310df24f",
+      "name": "Section 3",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        240,
+        1952
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 4 · Collect live data for the AI\nThe AI never guesses. It reads today's menus and prices, room rates, closed dates, the NEXT 14 DAYS OF AVAILABILITY from the CRM calendar, learned answers, the AI instructions and this customer's own bookings and payment status.",
+        "height": 340,
+        "width": 2660,
+        "color": 6
+      },
+      "id": "01931de5-fa0d-432e-9f41-37331c8650ce",
+      "name": "Section 4",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        240,
+        2592
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 5 · The AI brain\nThe AI Agent reads the customer's message with their own chat memory and the live data, then answers. When a booking is ready it replies with booking JSON instead of text. Before anything is sent, the safety check makes sure the AI never says a booking or payment is confirmed when the CRM does not say so. Gemini is the main model, Mistral is the backup.",
+        "height": 680,
+        "width": 900,
+        "color": 7
+      },
+      "id": "96c8dae2-c871-4ecc-b41e-6487db1e2ab5",
+      "name": "Section 5",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        240,
+        3040
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 6 · Decide what to do with the answer\nThis switch reads the AI's answer. Output 1 hand-off to a person, 2 booking, 3-6 menu pictures (Hi-Tea, Dinner, Wedding, Pool), 7 follow-up reminder, 8 normal text reply.",
+        "height": 340,
+        "width": 900
+      },
+      "id": "13a669d4-f724-4020-9078-e3668964cc05",
+      "name": "Section 6",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        240,
+        3840
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 7 · Hand-off to a person\nThe customer is told a person is coming, a Human Agent Request appears in the CRM and the CS team gets a WhatsApp alert. Once an agent takes over in the CRM, the bot stops answering that customer.",
+        "height": 510,
+        "width": 1460,
+        "color": 4
+      },
+      "id": "476dc2f5-c247-4e18-a844-e32abe2bc350",
+      "name": "Section 7",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        240,
+        4304
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 8 · Booking\nThe availability is checked first. If the slot is free the booking is saved as PENDING in the CRM (details in the right category) and the customer gets the total, the 20% advance and the company account number. If saving fails, the CS team is alerted and the customer is told the team will confirm.",
+        "height": 680,
+        "width": 3560,
+        "color": 6
+      },
+      "id": "5dc9ba87-7d8b-44aa-b562-47bb210e730e",
+      "name": "Section 8",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        240,
+        4944
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 9 · Menu pictures\nOnly when the customer asks for the menu or pictures. The text goes first, then the pictures saved in the CRM menu.",
+        "height": 850,
+        "width": 1460,
+        "color": 4
+      },
+      "id": "c1f50f2f-095f-4832-b8d2-ce3b1ccfb702",
+      "name": "Section 9",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        240,
+        5744
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 10 · Follow-up reminder\nIf the customer says they will decide, pay or visit later, a reminder is saved in the CRM and sent after the delay set in the CRM.",
+        "height": 510,
+        "width": 1160,
+        "color": 2
+      },
+      "id": "d5022d3e-67bc-4ce1-86dd-6bb153fc59bc",
+      "name": "Section 10",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        240,
+        6704
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 11 · Normal answer\nEverything else: the bot's text answer is marked as read, saved in the chat history and sent to the customer.",
+        "height": 340,
+        "width": 1160
+      },
+      "id": "5f878d6c-fb07-4c1f-955f-3ffb8f440d85",
+      "name": "Section 11",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        240,
+        7344
+      ]
+    },
+    {
+      "parameters": {
+        "content": "# Hotel d'GATES: WhatsApp AI booking bot\n**What it does:** answers customers on WhatsApp like a friendly front-desk person, checks the CRM calendar for availability, collects the booking details, saves the booking in the CRM as *Pending*, asks for the 20% advance, passes the payment screenshot to the CS team and confirms once the CS team verifies it.\n\n**Read it top to bottom.** Each coloured box is one step (1 to 11). Hover a node to see a short note.\n\n**The customer journey**\n1. Customer asks about a package, the AI shares the price and offer.\n2. Customer wants to book, the AI asks the DATE first and checks availability in the CRM calendar.\n3. Date is free, the AI takes the remaining details, then states the total and the 20% advance and asks \"confirm?\".\n4. Customer says yes, the booking is saved as Pending in the CRM (details in the right category) and the customer receives the account number.\n5. Customer sends the payment screenshot, the CS team is alerted on WhatsApp and the booking moves to Pending payment verification.\n6. CS presses Verify in the CRM, the customer receives the final confirmation.\n\n**Needs a person?** Customer asks for one, the AI hands off, a Human Agent Request appears in the CRM and the bot stays quiet once an agent takes over.\n\n**Everything is saved:** each message, menu picture and PDF the bot sends appears in the CRM chat history.\n\n**Before you activate:** add your WhatsApp credential and the CRM x-api-key credential, and set N8N_API_KEY, WHATSAPP_ACCESS_TOKEN, WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_CS_TEAM_NUMBER and the payment account variables on the backend (see N8N_CREDENTIALS.md).",
+        "height": 600,
+        "width": 1100,
+        "color": 5
+      },
+      "id": "9c80e10b-30e2-4f0c-a4ec-fce52c6042f4",
+      "name": "Read me first",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        240,
+        0
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "c77a198f-72ce-4fe3-870c-9f1e8b84c29c",
+      "name": "Combine text sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        2848,
+        832
+      ],
+      "notesInFlow": true,
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "f5288d16-bca7-46b8-821a-51d6ea29d548",
+              "name": "userMessage",
+              "value": "={{ $json.userMessage }}",
+              "type": "string"
+            },
+            {
+              "id": "082b7521-8eb3-41d4-ba13-7f60e0c47a5f",
+              "name": "fromNumber",
+              "value": "={{ $json.fromNumber }}",
+              "type": "string"
+            },
+            {
+              "id": "3111273e-1569-4907-b7ed-ef87ac826206",
+              "name": "toNumber",
+              "value": "={{ $json.toNumber }}",
+              "type": "string"
+            },
+            {
+              "id": "57d8f443-fec9-460e-ae37-32dc830a4edc",
+              "name": "restaurantId",
+              "value": "restaurant-1",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "id": "7f7f8ca5-1445-434f-a5fb-c7e7b5028be9",
+      "name": "Final customer message",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        3152,
+        832
+      ],
+      "notesInFlow": true,
+      "notes": "The text the AI will read (typed or from a voice note)."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://magenta-yak-337378.hostingersite.com/api/reminders/customer-replied",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { restaurantId: 'restaurant-1', fromNumber: $('Final customer message').first().json.fromNumber } }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "15a24b59-ed6f-4108-9ca6-546011d54549",
+      "name": "Cancel pending follow-up",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        448,
+        2080
+      ],
+      "notesInFlow": true,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "Wz9ioRvsKWLXFBlA",
+          "name": "Header Auth account"
+        }
+      },
+      "onError": "continueRegularOutput",
+      "notes": "The customer replied, so any scheduled reminder is cancelled."
+    },
+    {
+      "parameters": {
+        "url": "={{ 'https://magenta-yak-337378.hostingersite.com/api/human-mode/check/' + $('Final customer message').first().json.fromNumber }}",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "af288f21-7fa8-463c-a9db-9faa90401fb8",
+      "name": "Is a person handling this chat?",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        752,
+        2080
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c805a36a-2d14-438e-aac2-449921861c34",
+              "leftValue": "={{ $json.humanMode === true }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "89c102b5-0ea0-4848-8773-c49bef5d7424",
+      "name": "Person is handling?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1056,
+        2080
+      ],
+      "notesInFlow": true,
+      "notes": "YES: a human agent has taken over, so the bot does nothing."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://magenta-yak-337378.hostingersite.com/api/chats/whatsapp",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"customerId\": \"{{ $('Final customer message').first().json.fromNumber }}\",\n  \"customerMessage\": {{ JSON.stringify($('Final customer message').first().json.userMessage) }},\n  \"botReply\": \"\",\n  \"fromNumber\": \"{{ $('Final customer message').first().json.fromNumber }}\",\n  \"phone\": \"{{ $('Final customer message').first().json.fromNumber }}\",\n  \"direction\": \"customer\",\n  \"source\": \"whatsapp\",\n  \"restaurantId\": \"restaurant-1\"\n}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "text"
+            }
+          }
+        }
+      },
+      "id": "bd55706a-0b8d-42a2-a6ee-847692a3cbbf",
+      "name": "Save message for the agent (bot stays silent)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1344,
+        2080
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://magenta-yak-337378.hostingersite.com/api/bookings/decline-advance",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { restaurantId: 'restaurant-1', customerPhone: $('Final customer message').first().json.fromNumber, message: $('Final customer message').first().json.userMessage || '' } }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "5fa6d4c9-0e1d-4f1d-b2ba-0ac711b8aee1",
+      "name": "Check: did customer refuse the advance?",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1344,
+        2256
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "Wz9ioRvsKWLXFBlA",
+          "name": "Header Auth account"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "ddb77824-4830-446e-bb6c-ac7cb75fca23",
+              "leftValue": "={{ String($json.data?.active) }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {
+          "ignoreCase": true
+        }
+      },
+      "id": "40bff09e-287c-4fed-9726-001e5b664785",
+      "name": "Customer refused the advance?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1648,
+        2080
+      ],
+      "notesInFlow": true,
+      "notes": "YES: the reason is saved and the CS team is alerted."
+    },
+    {
+      "parameters": {
+        "operation": "send",
+        "phoneNumberId": "={{ $('Read message details').first().json.toNumber }}",
+        "recipientPhoneNumber": "={{ '+' + $('Final customer message').first().json.fromNumber }}",
+        "textBody": "={{ $('Check: did customer refuse the advance?').first().json.data.replyText }}",
+        "additionalFields": {}
+      },
+      "id": "f22df056-53f0-4b22-a5e6-17732f2ef207",
+      "name": "Reply: refusal noted",
+      "type": "n8n-nodes-base.whatsApp",
+      "typeVersion": 1.1,
+      "position": [
+        1952,
+        2080
+      ],
+      "webhookId": "8ad06b33-d867-4453-9d15-9d635e8633f7",
+      "credentials": {
+        "whatsAppApi": {
+          "id": "7jEgcxbHmIsq6HBM",
+          "name": "WhatsApp account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://magenta-yak-337378.hostingersite.com/api/chats/whatsapp",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { customerId: $('Final customer message').first().json.fromNumber, customerMessage: $('Final customer message').first().json.userMessage || '', botReply: $('Check: did customer refuse the advance?').first().json.data.replyText, fromNumber: $('Final customer message').first().json.fromNumber, phone: $('Final customer message').first().json.fromNumber, direction: 'bot', source: 'advance_payment_handoff', restaurantId: 'restaurant-1' } }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 30000
+        }
+      },
+      "id": "6c3da731-480e-42a4-9f5b-da2c78442969",
+      "name": "Save refusal reply in chat history",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        2256,
+        2080
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "Wz9ioRvsKWLXFBlA",
+          "name": "Header Auth account"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "url": "https://magenta-yak-337378.hostingersite.com/api/menus/public?restaurantId=restaurant-1",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "87f18228-8398-4636-aee6-c94e81a9546b",
+      "name": "Load menus and prices",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        448,
+        2720
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "Wz9ioRvsKWLXFBlA",
+          "name": "Header Auth account"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "url": "https://magenta-yak-337378.hostingersite.com/api/rooms/types/public?restaurantId=restaurant-1",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "80148c59-5c48-4b25-a550-284397aefbbf",
+      "name": "Load room types",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        752,
+        2720
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "Wz9ioRvsKWLXFBlA",
+          "name": "Header Auth account"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "url": "={{ 'https://magenta-yak-337378.hostingersite.com/api/settings/service-closures/status?restaurantId=' + encodeURIComponent($('Final customer message').first().json.resturantId || 'restaurant-1') }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "40838ab7-113b-4f3b-ad24-221085c2d433",
+      "name": "Load closed dates",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1056,
+        2720
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "Wz9ioRvsKWLXFBlA",
+          "name": "Header Auth account"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const menuResponse = $('Load menus and prices').first().json;\nconst roomTypeResponse = $('Load room types').first().json;\nconst roomTypes = Array.isArray(roomTypeResponse.data) ? roomTypeResponse.data.filter((room) => room.isActive !== false).map(({ _id, name, baseRate, totalRooms, maxGuestsPerRoom, description, amenities }) => ({ roomTypeId: _id, name, nightlyRate: baseRate, totalRooms, maxGuestsPerRoom, description, amenities })) : [];\nconst menus = Array.isArray(menuResponse.data) ? menuResponse.data : [];\nconst conciseMenus = menus.filter((menu) => menu.isActive !== false).map((menu) => ({\n  category: menu.category, title: menu.title, subtitle: menu.subtitle, badge: menu.badge, closingLine: menu.closingLine,\n  price: menu.price, priceNote: menu.priceNote, menuTimeSlots: menu.menuTimeSlots || [], menuSections: menu.menuSections || [], roomCheckInTime: menu.roomCheckInTime || \"\", roomCheckOutTime: menu.roomCheckOutTime || \"\", roomStayDurationHours: menu.roomStayDurationHours || null, hotelInfo: menu.hotelInfo || {},\n  description: menu.description, dishes: menu.dishes || [], weddingPackages: (menu.weddingPackages || []).filter((item) => item.isActive !== false), grandestOffer: menu.grandestOffer?.isActive === false ? null : (menu.grandestOffer || null), corporatePackages: (menu.corporatePackages || []).filter((item) => item.isActive !== false), corporateMeals: menu.corporateMeals || [], corporateMenuPreferences: menu.corporateMenuPreferences || [], corporateTaxPercent: menu.corporateTaxPercent, weddingTaxPercent: menu.weddingTaxPercent,\n  weddingVenues: menu.weddingVenues || [], weddingSaladOptions: menu.weddingSaladOptions || [], weddingDessertOptions: menu.weddingDessertOptions || [], extraPrices: menu.extraPrices || [],\n  media: { imageUrls: menu.media?.imageUrls || [], pdfUrls: menu.media?.pdfUrls || [], videoUrl: menu.media?.videoUrl || \"\", voiceNoteUrl: menu.media?.voiceNoteUrl || \"\" },\n  activeOffers: (menu.activeOffers || []).map(({ title, description, discountText }) => ({ title, description, discountText })),\n}));\nconst closureResponse = $input.first().json;\nconst closureData = closureResponse.data || {};\nconst closures = Array.isArray(closureData.closures) ? closureData.closures : [];\nconst closureContext = JSON.stringify({\n  currentDateInPakistan: closureData.today || 'Unknown',\n  priorityInstruction: 'Check these closures before greeting or replying about availability/booking. If today is closed, tell the customer the exact reason immediately. Never promise or create a booking on a listed closed date.',\n  closures: closures.map(({ date, reason }) => ({ date, reason })),\n});\nconst source = $('Final customer message').first().json;\nreturn [{ json: { ...source, menuContext: JSON.stringify(conciseMenus), roomTypesContext: JSON.stringify(roomTypes), closureContext } }];"
+      },
+      "id": "916601de-7f94-49f0-b4c4-54083ed555fe",
+      "name": "Build menu knowledge for AI",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1344,
+        2720
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://magenta-yak-337378.hostingersite.com/api/settings/agent-prompt/public?restaurantId=restaurant-1",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "d30f5dd7-d190-40c6-b676-5bdd8418056c",
+      "name": "Load AI instructions from CRM",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1648,
+        2720
+      ],
+      "notesInFlow": true,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "Wz9ioRvsKWLXFBlA",
+          "name": "Header Auth account"
+        }
+      },
+      "onError": "continueErrorOutput",
+      "notes": "The prompt is edited in the CRM (Bot Instructions page)."
+    },
+    {
+      "parameters": {
+        "url": "https://magenta-yak-337378.hostingersite.com/api/inquiry-learning/public?restaurantId=restaurant-1",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "80476399-16c8-4002-adf5-49c9563c48ad",
+      "name": "Load approved learned answers",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1952,
+        2720
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "Wz9ioRvsKWLXFBlA",
+          "name": "Header Auth account"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "url": "={{ 'https://magenta-yak-337378.hostingersite.com/api/bookings/customer-context?restaurantId=restaurant-1&phone=' + encodeURIComponent($('Build menu knowledge for AI').first().json.fromNumber) }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "21bf56de-1446-468c-a68a-c51320cf95d6",
+      "name": "Load customer bookings and payments",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        2256,
+        2720
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "Wz9ioRvsKWLXFBlA",
+          "name": "Header Auth account"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "url": "=https://magenta-yak-337378.hostingersite.com/api/slots/availability/upcoming?restaurantId=restaurant-1&days=14",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "d36a13b8-4e05-40a8-a474-527075179c6d",
+      "name": "Load upcoming availability",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        2544,
+        2720
+      ],
+      "notesInFlow": true,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "Wz9ioRvsKWLXFBlA",
+          "name": "Header Auth account"
+        }
+      },
+      "onError": "continueRegularOutput",
+      "notes": "Next 14 days of availability from the CRM calendar, so the AI can say available / limited / full before taking details."
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $('Build menu knowledge for AI').first().json.userMessage }}",
+        "needsFallback": true,
+        "options": {
+          "systemMessage": "={{ $('Load AI instructions from CRM').first().json.data.prompt + \"\\n\\nSERVICE CLOSURES (dates in Pakistan time):\\n\" + $('Build menu knowledge for AI').first().json.closureContext + \"\\n\\nLIVE MENU FROM CRM (current price, price notes, extras and active offers):\\n\" + $('Build menu knowledge for AI').first().json.menuContext + \"\\n\\nUPCOMING AVAILABILITY FROM THE CRM CALENDAR (next 14 days, Pakistan time; the only source for availability):\\n\" + (($('Load upcoming availability').first().json.summaryText) || \"Availability could not be loaded right now. Do not promise any date; say you will check it.\") + \"\\n\\nLIVE ROOM TYPES AND NIGHTLY RATES (from CRM; choose exact roomTypeId):\\n\" + $('Build menu knowledge for AI').first().json.roomTypesContext + \"\\n\\nLIVE CUSTOMER CRM BOOKING CONTEXT (match only this WhatsApp sender; staff-created bookings count as real records; paymentInstructions, when present, are the only account details you may repeat):\\n\" + JSON.stringify($('Load customer bookings and payments').first().json.data || {}) + \"\\n\\nCS-APPROVED INQUIRY LEARNING: Use an answer only when relevant and adapt it to the customer's language. Current CRM menu prices, room rates, availability, and closures always override this learning.\\n\" + JSON.stringify($('Load approved learned answers').first().json.data || []) }}"
+        }
+      },
+      "id": "9d4b6e95-c55b-4143-8c01-7359bdad564b",
+      "name": "AI Agent (the brain)",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        448,
+        3184
+      ],
+      "notesInFlow": true,
+      "retryOnFail": true,
+      "waitBetweenTries": 2000,
+      "notes": "Answers using the live CRM data and this customer's own chat memory."
+    },
+    {
+      "parameters": {
+        "modelName": "models/gemini-2.5-flash",
+        "options": {}
+      },
+      "id": "211f2deb-359c-4be0-8ae9-c77c45d91b4c",
+      "name": "Gemini model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1.2,
+      "position": [
+        144,
+        3440
+      ],
+      "credentials": {
+        "googlePalmApi": {
+          "id": null,
+          "name": "",
+          "__aiGatewayManaged": true
+        }
+      }
+    },
+    {
+      "parameters": {
+        "model": "mistral-small-latest",
+        "options": {}
+      },
+      "id": "424c0ab3-58a0-4c82-9ae2-0bd758e9662a",
+      "name": "Mistral backup model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatMistralCloud",
+      "typeVersion": 1,
+      "position": [
+        448,
+        3440
+      ],
+      "credentials": {
+        "mistralCloudApi": {
+          "id": "N7SNoRpC8PBMdqHy",
+          "name": "Mistral Cloud account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sessionIdType": "customKey",
+        "sessionKey": "={{ $('Customer sends WhatsApp message').first().json.contacts?.[0]?.wa_id ?? $('Customer sends WhatsApp message').first().json.from }}",
+        "collectionName": "=n8n_chat_histories",
+        "databaseName": "hotel_bot",
+        "contextWindowLength": 50
+      },
+      "id": "73ee97a5-cfce-4a92-ae32-926e88eeeced",
+      "name": "Chat memory (per customer)",
+      "type": "@n8n/n8n-nodes-langchain.memoryMongoDbChat",
+      "typeVersion": 1,
+      "position": [
+        752,
+        3440
+      ],
+      "credentials": {
+        "mongoDb": {
+          "id": "dQQV3THtyHSwhlgo",
+          "name": "MongoDB account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Safety net for the AI's plain-text answers.\n// The AI must never tell a customer that a booking or payment is confirmed unless the CRM says so.\n// If it does, the answer is replaced with a truthful one. JSON actions, tags and hand-offs pass through untouched.\nconst input = $input.first().json;\nconst raw = String(input.output || '');\nconst text = raw.trim();\n\nif (!text || text.startsWith('{') || text.includes('***') || /\"action\"\\s*:/.test(text)) {\n  return [{ json: { ...input, output: raw, guarded: false } }];\n}\n\nlet ctx = {};\ntry { ctx = $('Load customer bookings and payments').first().json.data || {}; } catch (error) { ctx = {}; }\nconst records = [...(ctx.bookings || []), ...(ctx.eventBookings || [])];\nconst hasRecord = records.length > 0;\nconst anyConfirmed = records.some((b) => /confirm|checked_in|completed/i.test(String(b.status || '')) && !/pending/i.test(String(b.status || '')));\nconst anyPaymentVerified = records.some((b) => b.paymentVerified === true);\nconst proofOnFile = records.some((b) => b.paymentProofOnFile === true);\n\n// Customer's language, same rule the rest of the workflow uses.\nlet source = '';\ntry { source = String($('Final customer message').first().json.userMessage || ''); } catch (error) { source = ''; }\nconst isUrdu = [...source].some((character) => { const code = character.codePointAt(0); return code >= 1536 && code <= 1791; });\nconst isRoman = /\\b(hai|hain|kya|kar|karo|chahiye|mujhe|aap|apko|aapki|aapka|mein|main|nahi|bhi|ka|ki|ke|ko|se|mera|meri|bata|bhej|karein|raha|rahi|ho|gayi|gaya)\\b/i.test(source);\nconst language = isUrdu ? 'ur' : isRoman ? 'roman' : 'en';\n\n// A sentence that asks something or talks about the future is not a claim.\nconst isQuestionOrFuture = (s) => /\\?|\\u061F|\\b(kar\\s*d[ou]n|karun|karenge|karega|karegi|karunga|chahte|chahenge|agar|jab\\s+tak|once|after|will|would|please|if|jayegi|jayega|hogi|hoga|ho\\s*jaye|ho\\s*jaaye|hone\\s*(par|ke))\\b/i.test(s);\nconst paidClaim = /(payment|advance|\\u0627\\u062F\\u0627\\u0626\\u06CC\\u06AF\\u06CC)[^.!\\n]{0,60}(received|confirmed?|verified|mil\\s*(gayi|gaya|chuki)|receive\\s*ho|ho\\s*(gayi|gaya|chuki)|\\u0645\\u0644\\s*\\u06AF\\u0626\\u06CC|\\u06C1\\u0648\\s*\\u06AF\\u0626\\u06CC)/i;\nconst confirmedClaim = /(booking|reservation|\\u0628\\u06A9\\u0646\\u06AF)[^.!\\n]{0,60}(confirmed|confirm\\s*(ho\\s*(chuki|chuka|gayi|gaya|gai)|hai|kar\\s*di|kar\\s*diya)|\\u06A9\\u0646\\u0641\\u0631\\u0645\\s*\\u06C1\\u0648\\s*(\\u06AF\\u0626\\u06CC|\\u0686\\u06A9\\u06CC))/i;\nconst savedClaim = /(booking|\\u0628\\u06A9\\u0646\\u06AF)[^.!\\n]{0,60}(save\\s*ho|saved|create\\s*ho|created)/i;\n\nconst sentences = text.split(/(?<=[.!?\\u06D4\\n])\\s+/).filter(Boolean);\nconst claims = (regex) => sentences.some((sentence) => !isQuestionOrFuture(sentence) && regex.test(sentence));\n\nconst wrongPaid = claims(paidClaim) && !anyPaymentVerified;\nconst wrongConfirmed = claims(confirmedClaim) && !anyConfirmed;\nconst wrongSaved = claims(savedClaim) && !hasRecord;\n\nif (!wrongPaid && !wrongConfirmed && !wrongSaved) {\n  return [{ json: { ...input, output: raw, guarded: false } }];\n}\n\nconst say = {\n  proofReceived: {\n    en: 'Your payment proof is received and our team is verifying it. Please wait a little, you will get the confirmation here as soon as it is verified. 🙏',\n    roman: 'Aapka payment proof mil gaya hai aur hamari team verify kar rahi hai. Thora wait karein, verify hote hi yahin confirmation mil jayegi. 🙏',\n    ur: 'آپ کا ادائیگی کا ثبوت مل گیا ہے اور ہماری ٹیم تصدیق کر رہی ہے۔ براہِ کرم تھوڑا انتظار کریں، تصدیق ہوتے ہی یہیں کنفرمیشن مل جائے گی۔ 🙏',\n  },\n  needProof: {\n    en: 'We have not received your payment proof yet. Once you have paid the advance, please send the screenshot here and our team will verify it. 🙏',\n    roman: 'Abhi tak aapka payment proof nahi mila. Advance payment karne ke baad please screenshot yahin bhej dein, hamari team verify kar degi. 🙏',\n    ur: 'ابھی تک آپ کا ادائیگی کا ثبوت نہیں ملا۔ ایڈوانس ادا کرنے کے بعد براہِ کرم اسکرین شاٹ یہیں بھیج دیں، ہماری ٹیم تصدیق کر دے گی۔ 🙏',\n  },\n  pending: {\n    en: 'Your booking is saved and still *pending*. It will be confirmed as soon as our team verifies your advance payment. 🙏',\n    roman: 'Aapki booking save hai aur abhi *pending* hai. Advance payment verify hote hi hamari team usay confirm kar degi. 🙏',\n    ur: 'آپ کی بکنگ محفوظ ہے اور ابھی *پینڈنگ* ہے۔ ایڈوانس کی تصدیق ہوتے ہی ہماری ٹیم اسے کنفرم کر دے گی۔ 🙏',\n  },\n  noRecord: {\n    en: 'Your booking is not saved yet. Please confirm the date, time and number of guests and I will save it for you.',\n    roman: 'Aapki booking abhi save nahi hui. Date, time aur kitne log hain confirm kar dein, main save kar deta hoon.',\n    ur: 'آپ کی بکنگ ابھی محفوظ نہیں ہوئی۔ براہِ کرم تاریخ، وقت اور افراد کی تعداد کنفرم کر دیں، میں اسے محفوظ کر دیتا ہوں۔',\n  },\n};\n\nlet reply;\nif (!hasRecord) reply = say.noRecord[language];\nelse if (proofOnFile) reply = say.proofReceived[language];\nelse if (wrongPaid) reply = say.needProof[language];\nelse reply = say.pending[language];\n\nreturn [{ json: { ...input, output: reply, guarded: true, originalOutput: raw } }];\n"
+      },
+      "id": "05440cdc-0c6e-4b13-8a00-89e8f622514f",
+      "name": "Check AI reply (safety)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        752,
+        3184
+      ],
+      "notesInFlow": true,
+      "notes": "Stops the AI from telling a customer that a booking or payment is confirmed when the CRM does not say so."
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ (() => { const t = String($json.output || $json.text || $json.message || ''); let u = ''; try { u = String($('Final customer message').first().json.userMessage || ''); } catch (e) {} const asked = /((talk|speak|chat|connect)[^.?!]{0,25}\\b(human|representative)\\b|real (person|human|agent)|live (agent|person)|(talk|speak)[^.?!]{0,15}customer (care|service)|(talk|speak) to (a |an )?(person|agent|someone|manager)|insa+n se|banda?y? se|agent se ba+t|manager se ba+t|kisi se ba+a?t|بات کرنی|انسان سے|ایجنٹ سے|مینیجر سے|کسٹمر کیئر|بندے سے|کسی سے بات)/i.test(u); return asked || t.includes('***HUMAN_HANDOFF***'); })() }}",
+                    "rightValue": true,
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "equals"
+                    },
+                    "id": "c19654b8-7e95-4ee4-9427-4bc989482e54"
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "5e859731-5402-4d45-a7d0-f637b106d170",
+                    "leftValue": "={{ /\"action\"\\s*:\\s*\"create_booking\"/.test($json.output || \"\") }}",
+                    "rightValue": true,
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "b4a4c2a5-cb31-4b4f-8057-5dbfc76c5856",
+                    "leftValue": "={{ \n  ($json.output && $json.output.includes(\"***SEND_HITEA_IMAGES***\")) ||\n  (\n    ($json.userMessage && $json.userMessage.toLowerCase().includes(\"hi-tea\") || \n     $json.userMessage && $json.userMessage.toLowerCase().includes(\"hitea\") ||\n     $json.userMessage && $json.userMessage.toLowerCase().includes(\"hi tea\")) &&\n    ($json.userMessage && $json.userMessage.toLowerCase().includes(\"menu\") ||\n     $json.userMessage && $json.userMessage.toLowerCase().includes(\"picture\") ||\n     $json.userMessage && $json.userMessage.toLowerCase().includes(\"image\") ||\n     $json.userMessage && $json.userMessage.toLowerCase().includes(\"dikhao\") ||\n     $json.userMessage && $json.userMessage.toLowerCase().includes(\"show\"))\n  )\n}}",
+                    "rightValue": "true",
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "ba80a039-5993-4e01-93a0-997350ef9abe",
+                    "leftValue": "={{ $json.output && $json.output.includes(\"***SEND_DINNER_IMAGES***\") }}",
+                    "rightValue": true,
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "0083c06c-2c9b-432a-a8cd-3a27be4d07a0",
+                    "leftValue": "={{ $json.output && $json.output.includes(\"***SEND_WEDDING_IMAGES***\") }}",
+                    "rightValue": true,
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "1e6282cd-a1e8-4b29-a7c2-990e32fb538e",
+                    "leftValue": "={{ $json.output && $json.output.includes(\"***SEND_POOL_IMAGES***\") }}",
+                    "rightValue": true,
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "54cd6222-e964-459c-9fc1-27b42b17bdd0",
+                    "leftValue": "={{ /\"action\"\\s*:\\s*\"create_reminder\"/.test($json.output || \"\") }}",
+                    "rightValue": true,
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            }
+          ]
+        },
+        "looseTypeValidation": true,
+        "options": {
+          "fallbackOutput": "extra"
+        }
+      },
+      "id": "f1bbb3c7-bef0-4fd1-82d4-c4762f47e4ab",
+      "name": "Route the AI answer",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        448,
+        3984
+      ],
+      "notesInFlow": true,
+      "notes": "Sends the answer to the right lane: hand-off, booking, menu pictures, reminder or normal reply."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ 'https://graph.facebook.com/v18.0/' + $('Read message details').first().json.toNumber + '/messages' }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "whatsAppApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"messaging_product\": \"whatsapp\",\n  \"status\": \"read\",\n  \"message_id\": \"{{ $(\"Read message details\").first().json.messages[0].id }}\"\n}",
+        "options": {}
+      },
+      "id": "0913d34c-6d5f-4397-bd0c-50e596bceece",
+      "name": "Mark as read (hand-off)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        448,
+        4432
+      ],
+      "credentials": {
+        "whatsAppApi": {
+          "id": "7jEgcxbHmIsq6HBM",
+          "name": "WhatsApp account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// The AI should return only JSON, but tolerate code fences or stray text around it.\nconst raw = String($input.first().json.output || '');\nconst cleaned = raw.replace(/```json\\n?/gi, '').replace(/```/g, '').trim();\n\nlet booking;\ntry {\n  booking = JSON.parse(cleaned);\n} catch (error) {\n  // Fall back to the first {...} block in the reply.\n  const start = cleaned.indexOf('{');\n  const end = cleaned.lastIndexOf('}');\n  if (start === -1 || end <= start) throw new Error('AI booking reply did not contain valid JSON.');\n  booking = JSON.parse(cleaned.slice(start, end + 1));\n}\n\nreturn [{ json: booking }];"
+      },
+      "id": "90770f18-c0a5-45ce-aaa2-6750371aa715",
+      "name": "Read booking JSON",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        5072
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const booking = $input.first().json;\nconst toQuery = (o) => Object.keys(o).map((k) => encodeURIComponent(k) + '=' + encodeURIComponent(o[k])).join('&');\nconst order = booking.order || {};\nconst packageName = String(order.package || '').trim();\nlet category = String(order.category || '').trim();\nif (!category) {\nif (/hi[\\s-]?tea|hitea/i.test(packageName)) category = 'Hi-Tea Buffet';\nelse if (/dinner|buffet/i.test(packageName)) category = 'Dinner Buffet';\nelse if (/pool|gym|swim/i.test(packageName)) category = 'Pool/Gym';\nelse if (/wedding|shaadi|shadi|nikah|walima|mehndi/i.test(packageName)) category = 'Wedding';\nelse if (/room|accommodation|suite/i.test(packageName)) category = 'Rooms';\nelse if (/movie\\s*night|auditorium/i.test(packageName)) category = 'Auditorium / Movie Night + Hi-Tea';\nelse if (/a\\s*la\\s*carte|alacarte|restaurant|table/i.test(packageName)) category = '\\u00c0 la carte / Restaurant Reservation';\nelse if (/corporate|conference|meeting/i.test(packageName)) category = 'Corporate';\nelse throw new Error('Choose a configured booking category from the live CRM menu.');\n}\nif (category === 'Wedding Package') category = 'Wedding';\nif (category === 'A la carte / Restaurant Reservation') category = '\\u00c0 la carte / Restaurant Reservation';\n\nconst date = String(order.date || '').slice(0, 10);\nconst parsedDate = new Date(date + 'T00:00:00.000Z');\nif (!/^\\d{4}-\\d{2}-\\d{2}$/.test(date) || Number.isNaN(parsedDate.getTime()) || parsedDate.toISOString().slice(0, 10) !== date) throw new Error('Check-in date must be a valid YYYY-MM-DD date.');\nconst persons = Number(order.persons);\nif (!Number.isInteger(persons) || persons < 1) throw new Error('Guest count must be a positive whole number.');\nif (category === 'Rooms') {\n  const checkOutDate = String(order.checkOutDate || '').slice(0, 10);\n  const parsedCheckOut = new Date(checkOutDate + 'T00:00:00.000Z');\n  if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(checkOutDate) || Number.isNaN(parsedCheckOut.getTime()) || parsedCheckOut.toISOString().slice(0, 10) !== checkOutDate || checkOutDate <= date) throw new Error('Room check-out must be a valid date after check-in.');\n  if (!/^[a-f0-9]{24}$/i.test(String(order.roomTypeId || ''))) throw new Error('Choose a configured room type from the live CRM room list.');\n  const rooms = Number(order.numberOfRooms || 1);\n  if (!Number.isInteger(rooms) || rooms < 1 || rooms > 100) throw new Error('Room count must be a whole number from 1 to 100.');\n  const query = toQuery({ restaurantId: 'restaurant-1', checkInDate: date, checkOutDate, roomTypeId: String(order.roomTypeId), rooms: String(rooms), guests: String(persons) });\n  return [{ json: { ...booking, availabilityUrl: 'https://magenta-yak-337378.hostingersite.com/api/rooms/availability/check?' + query } }];\n}\nconst timeMatch = String(order.time || '').trim().match(/^(\\d{1,2})(?::(\\d{2}))?\\s*(AM|PM)?/i);\nif (!timeMatch) throw new Error('Booking time must be a valid time such as 7:00 PM.');\nlet hour = Number(timeMatch[1]);\nconst minute = Number(timeMatch[2] || 0);\nif (minute > 59 || hour > 23 || (timeMatch[3] && (hour < 1 || hour > 12))) throw new Error('Booking time is invalid.');\nif (timeMatch[3]) hour = hour % 12 + (timeMatch[3].toUpperCase() === 'PM' ? 12 : 0);\nconst time = ('0' + hour).slice(-2) + ':' + ('0' + minute).slice(-2);\nif (category === 'Corporate') return [{ json: { ...booking, availabilityNotRequired: true } }];\nconst query = toQuery({ restaurantId: 'restaurant-1', date, time, persons: String(persons), category });\nreturn [{ json: { ...booking, availabilityUrl: 'https://magenta-yak-337378.hostingersite.com/api/slots/availability?' + query } }];"
+      },
+      "id": "f0d410ca-0271-49d1-a29e-e0ad5bcf65df",
+      "name": "Prepare availability check",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        752,
+        5072
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "3c9182cf-7d05-4ede-85d3-a219b9be15e6",
+              "leftValue": "={{ $json.availabilityNotRequired === true }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {
+          "ignoreCase": true
+        }
+      },
+      "id": "d2cf6862-a1ab-42c2-96ea-9a4d8bca5c29",
+      "name": "Corporate booking? (skips slot check)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1056,
+        5072
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://magenta-yak-337378.hostingersite.com/api/bookings/from-whatsapp",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { fromNumber: $('Final customer message').first().json.fromNumber, bookingData: { restaurantId: 'restaurant-1', customerName: $('Read booking JSON').first().json.customer.name, customerEmail: $('Read booking JSON').first().json.customer.email || '', customerPhone: $('Read booking JSON').first().json.customer.phone, package: $('Read booking JSON').first().json.order.package, bookingCategory: $('Read booking JSON').first().json.order.category || '', selectedItems: $('Read booking JSON').first().json.order.selectedItems || [], bookingDetails: $('Read booking JSON').first().json.order.bookingDetails || [], numberOfPersons: Number($('Read booking JSON').first().json.order.persons), bookingDate: $('Read booking JSON').first().json.order.date, bookingTime: String($('Read booking JSON').first().json.order.time || '15:00').split(' to ')[0].split(' - ')[0].trim(), roomTypeId: $('Read booking JSON').first().json.order.roomTypeId || undefined, roomType: $('Read booking JSON').first().json.order.roomType || '', checkOutDate: $('Read booking JSON').first().json.order.checkOutDate || undefined, numberOfRooms: Number($('Read booking JSON').first().json.order.numberOfRooms || 1), specialRequests: $('Read booking JSON').first().json.order.special_request || '', totalAmount: Number($('Read booking JSON').first().json.order.totalAmount), source: 'whatsapp_bot' } } }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "text"
+            }
+          }
+        }
+      },
+      "id": "d133b97a-e79c-446b-a162-559bbf0c02b6",
+      "name": "Save booking in CRM",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1952,
+        5232
+      ],
+      "notesInFlow": true,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "Wz9ioRvsKWLXFBlA",
+          "name": "Header Auth account"
+        }
+      },
+      "onError": "continueErrorOutput",
+      "notes": "Creates the Pending booking with its category details."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "85404700-e49d-468c-87e7-db32d9e29e76",
+              "leftValue": "={{ (() => { try { return Number($json.statusCode) < 300 && JSON.parse($json.data).success === true; } catch (e) { return false; } })() }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "ca108991-f333-4183-ac37-33ea679d8527",
+      "name": "Was the booking saved?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2256,
+        5072
+      ],
+      "notesInFlow": true,
+      "notes": "NO: CS team is alerted so no customer is left waiting in silence."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "6a3cc27e-482a-4cb9-bf23-e32a2f1600b6",
+              "leftValue": "={{ String(JSON.parse($json.data).paymentInstructions?.configured) }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {
+          "ignoreCase": true
+        }
+      },
+      "id": "586504d9-9239-4360-a384-cac8a46f27ad",
+      "name": "Is the payment account set up?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        2544,
+        5232
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "send",
+        "phoneNumberId": "={{ $('Read message details').first().json.toNumber }}",
+        "recipientPhoneNumber": "={{ $('Final customer message').first().json.fromNumber }}",
+        "textBody": "={{ (() => {\nconst source = String($('Final customer message').first().json.userMessage || '');\nconst isUrdu = [...source].some((character) => { const code = character.codePointAt(0); return code >= 1536 && code <= 1791; });\nconst language = isUrdu ? 'ur' : /\\b(hai|hain|kya|kar|karo|chahiye|mujhe|aap|apko|aapki|aapka|mein|main|nahi|bhi|ka|ki|ke|ko|se|mera|meri|bata|bhej|karein|raha|rahi)\\b/i.test(source) ? 'roman' : 'en';\nconst response = JSON.parse($('Save booking in CRM').first().json.data);\nconst b = response.data;\nconst payment = response.paymentInstructions;\nconst date = new Date(b.bookingDate).toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'Asia/Karachi' });\nconst checkout = new Date(b.checkOutDate).toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'Asia/Karachi' });\nconst labels = language === 'ur'\n ? { greeting:'\\u0645\\u062d\\u062a\\u0631\\u0645/\\u0645\\u062d\\u062a\\u0631\\u0645\\u06c1', pending:'\\u0622\\u067e \\u06a9\\u06cc \\u0628\\u06a9\\u0646\\u06af \\u06a9\\u06cc \\u062f\\u0631\\u062e\\u0648\\u0627\\u0633\\u062a \\u0645\\u0648\\u0635\\u0648\\u0644 \\u06c1\\u0648 \\u06af\\u0626\\u06cc \\u06c1\\u06d2\\u06d4 \\u06cc\\u06c1 \\u0627\\u0628\\u06be\\u06cc \\u0632\\u06cc\\u0631\\u0650 \\u0627\\u0644\\u062a\\u0648\\u0627 \\u06c1\\u06d2\\u060c \\u062a\\u0635\\u062f\\u06cc\\u0642 \\u0646\\u06c1\\u06cc\\u06ba \\u06c1\\u0648\\u0626\\u06cc\\u06d4 \\u0627\\u06cc\\u0688\\u0648\\u0627\\u0646\\u0633 \\u06a9\\u06cc \\u0627\\u062f\\u0627\\u0626\\u06cc\\u06af\\u06cc \\u0627\\u0648\\u0631 \\u062a\\u0635\\u062f\\u06cc\\u0642 \\u06a9\\u06d2 \\u0628\\u0639\\u062f \\u06c1\\u06cc \\u0628\\u06a9\\u0646\\u06af \\u06a9\\u0646\\u0641\\u0631\\u0645 \\u06c1\\u0648\\u06af\\u06cc\\u06d4', ref:'\\u0628\\u06a9\\u0646\\u06af \\u0631\\u06cc\\u0641\\u0631\\u0646\\u0633', package:'\\u067e\\u06cc\\u06a9\\u06cc\\u062c', date:'\\u062a\\u0627\\u0631\\u06cc\\u062e', time:'\\u0648\\u0642\\u062a', rooms:'\\u06a9\\u0645\\u0631\\u06d2', roomType:'\\u06a9\\u0645\\u0631\\u06d2 \\u06a9\\u06cc \\u0642\\u0633\\u0645', checkout:'\\u0686\\u06cc\\u06a9 \\u0622\\u0679', guests:'\\u0645\\u06c1\\u0645\\u0627\\u0646\\u0648\\u06ba \\u06a9\\u06cc \\u062a\\u0639\\u062f\\u0627\\u062f', total:'\\u06a9\\u0644 \\u0631\\u0642\\u0645', advance:'20% \\u0627\\u06cc\\u0688\\u0648\\u0627\\u0646\\u0633', bank:'\\u0628\\u06cc\\u0646\\u06a9', title:'\\u0627\\u06a9\\u0627\\u0624\\u0646\\u0679 \\u0679\\u0627\\u0626\\u0679\\u0644', account:'\\u0627\\u06a9\\u0627\\u0624\\u0646\\u0679 \\u0646\\u0645\\u0628\\u0631', iban:'\\u0622\\u0626\\u06cc \\u0628\\u06cc \\u0627\\u06cc\\u0628\\u06cc\\u0622\\u0626\\u06cc\\u0627\\u0646', pay:'\\u0628\\u0631\\u0627\\u06c1\\u0650 \\u06a9\\u0631\\u0645 \\u0646\\u06cc\\u0686\\u06d2 \\u062f\\u06cc \\u06af\\u0626\\u06cc \\u06a9\\u0645\\u067e\\u0646\\u06cc \\u06a9\\u06cc \\u0627\\u062f\\u0627\\u0626\\u06cc\\u06af\\u06cc \\u06a9\\u06cc \\u062a\\u0641\\u0635\\u06cc\\u0644 \\u06a9\\u06d2 \\u0645\\u0637\\u0627\\u0628\\u0642 20% \\u0627\\u06cc\\u0688\\u0648\\u0627\\u0646\\u0633 \\u0627\\u062f\\u0627 \\u06a9\\u0631\\u06cc\\u06ba\\u06d4 \\u0627\\u062f\\u0627\\u0626\\u06cc\\u06af\\u06cc \\u06a9\\u06d2 \\u0628\\u0639\\u062f \\u0627\\u0633\\u06cc WhatsApp \\u067e\\u0631 \\u0631\\u0633\\u06cc\\u062f \\u06a9\\u0627 \\u0627\\u0633\\u06a9\\u0631\\u06cc\\u0646 \\u0634\\u0627\\u0679 \\u0628\\u06be\\u06cc\\u062c\\u06cc\\u06ba\\u06d4 \\u06c1\\u0645\\u0627\\u0631\\u06cc \\u0679\\u06cc\\u0645 \\u062a\\u0635\\u062f\\u06cc\\u0642 \\u06a9\\u06d2 \\u0628\\u0639\\u062f \\u0622\\u067e \\u06a9\\u0648 \\u0628\\u06a9\\u0646\\u06af \\u06a9\\u06cc \\u062d\\u062a\\u0645\\u06cc \\u062a\\u0635\\u062f\\u06cc\\u0642 \\u0628\\u06be\\u06cc\\u062c\\u06d2 \\u06af\\u06cc\\u06d4', thanks:'\\u0634\\u06a9\\u0631\\u06cc\\u06c1' } : language === 'roman'\n ? { greeting:'Dear', pending:'Aapki booking request mil gayi hai. Yeh abhi pending hai, confirm nahi hui. Advance payment aur verification ke baad hi booking confirm hogi.', ref:'Booking reference', package:'Package', date:'Date', time:'Time', rooms:'Rooms', roomType:'Room type', checkout:'Check-out', guests:'Guests', total:'Kul raqam', advance:'20% advance', bank:'Bank', title:'Account title', account:'Account number', iban:'IBAN', pay:'Neeche di hui company payment details par 20% advance jama karein. Payment ke baad screenshot isi WhatsApp par bhej dein. Hamari team verification ke baad final booking confirmation bhejegi.', thanks:'Shukriya' }\n : { greeting:'Dear', pending:'We received your booking request. It is PENDING and is not confirmed. The booking will be confirmed only after the advance is paid and verified.', ref:'Booking reference', package:'Package', date:'Date', time:'Time', rooms:'Rooms', roomType:'Room type', checkout:'Check-out', guests:'Guests', total:'Total', advance:'20% advance', bank:'Bank', title:'Account title', account:'Account number', iban:'IBAN', pay:'Please pay the 20% advance using the company payment details below, then send the payment screenshot here on WhatsApp. Our team will send the final booking confirmation after verification.', thanks:'Thank you' };\nconst details = b.roomType\n ? '*' + labels.roomType + '*: ' + b.roomType + '\\n*' + labels.rooms + '*: ' + b.numberOfRooms + '\\n*' + labels.checkout + '*: ' + checkout\n : '*' + labels.time + '*: ' + b.bookingTime;\nreturn labels.greeting + ' ' + b.customerName + ',\\n\\n' + labels.pending + '\\n\\n*' + labels.ref + '*: ' + b._id + '\\n*' + labels.package + '*: ' + b.package + '\\n*' + labels.date + '*: ' + date + '\\n' + details + '\\n*' + labels.guests + '*: ' + b.numberOfPersons + '\\n*' + labels.total + '*: Rs ' + Number(b.totalAmount).toLocaleString('en-PK') + '\\n*' + labels.advance + '*: Rs ' + Number(b.advanceAmount).toLocaleString('en-PK') + '\\n\\n*' + labels.bank + '*: ' + payment.bankName + '\\n*' + labels.title + '*: ' + payment.accountTitle + '\\n*' + labels.account + '*: ' + payment.accountNumber + '\\n*' + labels.iban + '*: ' + payment.iban + '\\n\\n' + labels.pay + '\\n\\n' + labels.thanks + ', Hotel d\\'GATES.';\n})() }}",
+        "additionalFields": {}
+      },
+      "id": "2627484d-a8d6-42e1-affd-4e64542e14e1",
+      "name": "Reply: booking saved + how to pay",
+      "type": "n8n-nodes-base.whatsApp",
+      "typeVersion": 1.1,
+      "position": [
+        2848,
+        5408
+      ],
+      "notesInFlow": true,
+      "webhookId": "cf54406c-cbf7-45f7-930e-7b9fa555f0a3",
+      "credentials": {
+        "whatsAppApi": {
+          "id": "7jEgcxbHmIsq6HBM",
+          "name": "WhatsApp account"
+        }
+      },
+      "onError": "continueErrorOutput",
+      "notes": "Total, 20% advance and company account number."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://magenta-yak-337378.hostingersite.com/api/chats/whatsapp",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { customerId: $('Final customer message').first().json.fromNumber, customerMessage: $('Final customer message').first().json.userMessage || '', botReply: 'Pending booking saved. The customer was sent configured company payment instructions for the exact 20% advance; the booking remains pending until payment is verified.', fromNumber: $('Final customer message').first().json.fromNumber, phone: $('Final customer message').first().json.fromNumber, direction: 'bot', source: 'booking_payment_instructions', restaurantId: 'restaurant-1' } }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 30000
+        }
+      },
+      "id": "1b81b033-5e68-47c6-8063-0ae0078fe2fa",
+      "name": "Save payment message in chat history",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        3152,
+        5408
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "Wz9ioRvsKWLXFBlA",
+          "name": "Header Auth account"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://magenta-yak-337378.hostingersite.com/api/agent-requests/from-whatsapp",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { restaurantId: 'restaurant-1', phone: $('Read message details').first().json.fromNumber, reason: 'bot_handoff', notifyCs: true, message: 'Booking SAVED as pending, but the company payment account is not set in the backend (PAYMENT_ACCOUNT_* variables). Please send the account details to this customer on WhatsApp.' } }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "b69708a3-67db-45ec-9abf-e542b549a8fc",
+      "name": "Report missing payment account (CRM + CS)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        2848,
+        5232
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "Wz9ioRvsKWLXFBlA",
+          "name": "Header Auth account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "operation": "send",
+        "phoneNumberId": "={{ $('Read message details').first().json.toNumber }}",
+        "recipientPhoneNumber": "={{ '+' + $('Read message details').first().json.fromNumber }}",
+        "textBody": "Thank you! Your booking is saved as pending. Our team will share the payment details here on WhatsApp in a moment. 🙏",
+        "additionalFields": {}
+      },
+      "id": "76368b29-8bb4-4be1-a7c2-85cfc2d6d7e5",
+      "name": "Reply: team will share payment details",
+      "type": "n8n-nodes-base.whatsApp",
+      "typeVersion": 1.1,
+      "position": [
+        3152,
+        5232
+      ],
+      "webhookId": "08da502d-270a-4e59-ab86-0541864926ba",
+      "credentials": {
+        "whatsAppApi": {
+          "id": "7jEgcxbHmIsq6HBM",
+          "name": "WhatsApp account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://magenta-yak-337378.hostingersite.com/api/chats/whatsapp",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { fromNumber: $('Final customer message').first().json.fromNumber, customerMessage: $('Final customer message').first().json.userMessage || '', botReply: String($node[\"Reply: team will share payment details\"].parameter.textBody || ''), restaurantId: 'restaurant-1' } }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "text"
+            }
+          }
+        }
+      },
+      "id": "106bceb2-f9fb-4b22-965b-7adbdea62af4",
+      "name": "Save payment-details reply in chat history",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        3456,
+        5072
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://magenta-yak-337378.hostingersite.com/api/agent-requests/from-whatsapp",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { restaurantId: 'restaurant-1', phone: $('Read message details').first().json.fromNumber, reason: 'bot_handoff', notifyCs: true, message: 'Booking could not be saved in the CRM. ' + (() => { try { const r = JSON.parse($('Save booking in CRM').first().json.data); return (r.message || '') + ' | package: ' + $('Read booking JSON').first().json.order.package + ' | date: ' + $('Read booking JSON').first().json.order.date + ' | guests: ' + $('Read booking JSON').first().json.order.persons + ' | name: ' + $('Read booking JSON').first().json.customer.name; } catch (e) { return 'Please check the booking manually.'; } })() } }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "99e89306-feaf-4092-8f20-043bc8e05142",
+      "name": "Report booking problem (CRM + CS)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        2544,
+        5072
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "Wz9ioRvsKWLXFBlA",
+          "name": "Header Auth account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "operation": "send",
+        "phoneNumberId": "={{ $('Read message details').first().json.toNumber }}",
+        "recipientPhoneNumber": "={{ '+' + $('Read message details').first().json.fromNumber }}",
+        "textBody": "Thank you! Your booking details are noted. Our team is confirming it for you and will message you shortly. 🙏",
+        "additionalFields": {}
+      },
+      "id": "51ab583c-6632-49f6-920c-d0301796278c",
+      "name": "Reply: team will confirm booking",
+      "type": "n8n-nodes-base.whatsApp",
+      "typeVersion": 1.1,
+      "position": [
+        2848,
+        5072
+      ],
+      "webhookId": "c966cbec-31d7-4d3b-88e2-5467b331db8c",
+      "credentials": {
+        "whatsAppApi": {
+          "id": "7jEgcxbHmIsq6HBM",
+          "name": "WhatsApp account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://magenta-yak-337378.hostingersite.com/api/chats/whatsapp",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { fromNumber: $('Final customer message').first().json.fromNumber, customerMessage: $('Final customer message').first().json.userMessage || '', botReply: String($node[\"Reply: team will confirm booking\"].parameter.textBody || ''), restaurantId: 'restaurant-1' } }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "text"
+            }
+          }
+        }
+      },
+      "id": "54cc29f6-3694-47bd-9c64-63771c7dbfe8",
+      "name": "Save booking-problem reply in chat history",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        3152,
+        5072
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.availabilityUrl }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "bb46ba66-3350-4f70-a3b5-12dc3bbf623a",
+      "name": "Check slot availability",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1344,
+        5072
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "Wz9ioRvsKWLXFBlA",
+          "name": "Header Auth account"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "f6f41dce-8777-40ae-b80d-39795b7fe2d6",
+              "leftValue": "={{ String($json.available) }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {
+          "ignoreCase": true
+        }
+      },
+      "id": "e61c0337-552f-484b-be8e-53a59aa1c71e",
+      "name": "Is the slot free?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1648,
+        5072
+      ],
+      "notesInFlow": true,
+      "notes": "NO: the customer is offered other free slots."
+    },
+    {
+      "parameters": {
+        "operation": "send",
+        "phoneNumberId": "={{ $('Read message details').first().json.toNumber }}",
+        "recipientPhoneNumber": "={{ '+' + $('Final customer message').first().json.fromNumber }}",
+        "textBody": "={{ (() => {\nconst source = String($('Final customer message').first().json.userMessage || '');\nconst isUrdu = [...source].some((character) => { const code = character.codePointAt(0); return code >= 1536 && code <= 1791; });\nconst isRoman = /\\b(hai|hain|kya|kar|karo|chahiye|mujhe|aap|apko|aapki|aapka|mein|main|nahi|bhi|ka|ki|ke|ko|se|mera|meri|bata|bhej|karein|raha|rahi)\\b/i.test(source);\nconst language = isUrdu ? 'ur' : isRoman ? 'roman' : 'en';\nconst alternatives = Array.isArray($json.alternatives) ? $json.alternatives : [];\nconst options = alternatives.map((slot) => String(slot.date) + ' ? ' + String(slot.label)).join('\\n');\nif (language === 'ur') {\n if (options) return '\\u0645\\u0639\\u0630\\u0631\\u062a\\u060c \\u0627\\u0633 \\u062a\\u0627\\u0631\\u06cc\\u062e/\\u0648\\u0642\\u062a \\u067e\\u0631 \\u062f\\u0633\\u062a\\u06cc\\u0627\\u0628 \\u0646\\u06c1\\u06cc\\u06ba\\u06d4 \\u062f\\u0633\\u062a\\u06cc\\u0627\\u0628 \\u0645\\u062a\\u0628\\u0627\\u062f\\u0644 \\u0627\\u0648\\u0642\\u0627\\u062a:\\n' + options + '\\n\\u0627\\u0646 \\u0645\\u06cc\\u06ba \\u0633\\u06d2 \\u06a9\\u0648\\u0646 \\u0633\\u0627 \\u0648\\u0642\\u062a \\u0622\\u067e \\u06a9\\u06d2 \\u0644\\u06cc\\u06d2 \\u0628\\u06be\\u06cc\\u062c\\u0648\\u06ba\\u061f \\u0645\\u06cc\\u06ba \\u067e\\u06c1\\u0644\\u06d2 \\u0627\\u0633 \\u06a9\\u06cc \\u062f\\u0633\\u062a\\u06cc\\u0627\\u0628\\u06cc \\u0686\\u06cc\\u06a9 \\u06a9\\u0631\\u0648\\u06ba \\u06af\\u0627/\\u06af\\u06cc\\u06d4';\n return '\\u0645\\u0639\\u0630\\u0631\\u062a\\u060c \\u0622\\u067e \\u06a9\\u06cc \\u0686\\u0646\\u062f\\u06c1 \\u06af\\u0626\\u06cc \\u062a\\u0627\\u0631\\u06cc\\u062e/\\u0648\\u0642\\u062a \\u062f\\u0633\\u062a\\u06cc\\u0627\\u0628 \\u0646\\u06c1\\u06cc\\u06ba\\u06d4 \\u06a9\\u06cc\\u0627 \\u0622\\u067e \\u06a9\\u0648\\u0626\\u06cc \\u062f\\u0648\\u0633\\u0631\\u06cc \\u062a\\u0627\\u0631\\u06cc\\u062e \\u06cc\\u0627 \\u0648\\u0642\\u062a \\u0628\\u062a\\u0627 \\u0633\\u06a9\\u062a\\u06d2 \\u06c1\\u06cc\\u06ba\\u061f \\u0645\\u06cc\\u06ba \\u0627\\u0633 \\u06a9\\u06cc \\u0628\\u06be\\u06cc \\u062f\\u0633\\u062a\\u06cc\\u0627\\u0628\\u06cc \\u0686\\u06cc\\u06a9 \\u06a9\\u0631\\u0648\\u06ba \\u06af\\u0627/\\u06af\\u06cc\\u06d4';\n}\nif (language === 'roman') {\n if (options) return 'Maazrat, yeh date/time available nahi hai. Yeh available options hain:\\n' + options + '\\nIn mein se kaunsa aapke liye theek rahega? Main pehle uski availability check karunga/karungi.';\n return 'Maazrat, aapki chuni hui date/time available nahi hai. Kya aap koi doosri date ya time bata sakte hain? Main uski availability check karunga/karungi.';\n}\nif (options) return 'Sorry, that date/time is not available. These options are available:\\n' + options + '\\nWhich one works for you? I will check its availability first.';\nreturn 'Sorry, your selected date/time is not available. Could you choose another date or time? I will check its availability first.';\n})() }}",
+        "additionalFields": {}
+      },
+      "id": "fb47bddd-b91b-480d-b1f0-35fd1a9bce04",
+      "name": "Reply: offer other free slots",
+      "type": "n8n-nodes-base.whatsApp",
+      "typeVersion": 1.1,
+      "position": [
+        1952,
+        5072
+      ],
+      "webhookId": "1afd7002-0d85-4ff3-86d6-5ce851463f1a",
+      "credentials": {
+        "whatsAppApi": {
+          "id": "7jEgcxbHmIsq6HBM",
+          "name": "WhatsApp account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ 'https://graph.facebook.com/v18.0/' + $('Read message details').first().json.toNumber + '/messages' }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "whatsAppApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"messaging_product\": \"whatsapp\",\n  \"status\": \"read\",\n  \"message_id\": \"{{ $(\"Read message details\").first().json.messages[0].id }}\"\n}",
+        "options": {}
+      },
+      "id": "921ed86f-634a-41e5-8e12-ba7a420dc27b",
+      "name": "Mark as read (menu pictures)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        448,
+        5872
+      ],
+      "credentials": {
+        "whatsAppApi": {
+          "id": "7jEgcxbHmIsq6HBM",
+          "name": "WhatsApp account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "let output = $('Check AI reply (safety)').first().json.output || '';\noutput = output.replace(/\\*\\*\\*SEND_HITEA_IMAGES\\*\\*\\*/g, '').trim();\nreturn [{ json: { output, category: 'Hi-Tea Buffet', fromNumber: $('Final customer message').first().json.fromNumber } }];"
+      },
+      "id": "be778e05-c9bd-45bb-8e6f-85e300206301",
+      "name": "Prepare Hi-Tea menu reply",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        752,
+        5872
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "send",
+        "phoneNumberId": "={{ $('Read message details').first().json.toNumber }}",
+        "recipientPhoneNumber": "={{ '+' + $json.fromNumber }}",
+        "textBody": "={{ $json.output }}",
+        "additionalFields": {}
+      },
+      "id": "b9e3dd98-bf39-426a-9123-a390cb76ed84",
+      "name": "Reply: text with menu",
+      "type": "n8n-nodes-base.whatsApp",
+      "typeVersion": 1.1,
+      "position": [
+        1056,
+        5872
+      ],
+      "webhookId": "6b5bea11-6ee1-464a-8c49-d69eb96d5504",
+      "credentials": {
+        "whatsAppApi": {
+          "id": "7jEgcxbHmIsq6HBM",
+          "name": "WhatsApp account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const source = $input.first().json;\nconst response = $('Load menus and prices').first().json;\nconst menus = Array.isArray(response.data) ? response.data : [];\nconst menu = menus.find((item) => item.category === source.category && item.isActive !== false);\nif (!menu) return [];\nconst media = menu.media || {};\nconst assets = [\n  ...(media.imageUrls || []).map((url) => ({ type: 'image', url, caption: menu.captionAfterImage || '' })),\n  ...(media.pdfUrls || []).map((url) => ({ type: 'document', url, filename: url.split('/').pop().split('?')[0] || 'menu.pdf' })),\n  ...(media.videoUrl ? [{ type: 'video', url: media.videoUrl }] : []),\n  ...(media.voiceNoteUrl ? [{ type: 'audio', url: media.voiceNoteUrl }] : []),\n];\nreturn assets\n  .filter((asset) => typeof asset.url === 'string' && /^https:\\/\\//i.test(asset.url))\n  .map((asset) => ({ json: { ...asset, to: source.fromNumber } }));"
+      },
+      "id": "5fce46a1-b00f-4d1c-bdeb-e76c4569e60b",
+      "name": "Collect menu pictures",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1056,
+        6032
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://graph.facebook.com/v18.0/{{ $('Final customer message').first().json.toNumber }}/messages",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "whatsAppApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { messaging_product: 'whatsapp', recipient_type: 'individual', to: $json.to, type: $json.type, [$json.type]: $json.type === 'document' ? { link: $json.url, filename: $json.filename } : { link: $json.url, ...($json.caption ? { caption: $json.caption } : {}) } } }}",
+        "options": {}
+      },
+      "id": "f215f1d5-1320-4a27-9959-c26c97f85f2b",
+      "name": "Send menu pictures",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1344,
+        5872
+      ],
+      "credentials": {
+        "whatsAppApi": {
+          "id": "7jEgcxbHmIsq6HBM",
+          "name": "WhatsApp account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://magenta-yak-337378.hostingersite.com/api/chats/whatsapp",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ (() => { const menus = Array.isArray($('Load menus and prices').first().json.data) ? $('Load menus and prices').first().json.data : []; const menu = menus.find((m) => m.category === $json.category && m.isActive !== false); const media = (menu && menu.media) || {}; const items = [ ...(media.imageUrls || []).map((url) => ({ type: 'image', url, caption: menu.captionAfterImage || '' })), ...(media.pdfUrls || []).map((url) => ({ type: 'document', url })), ...(media.videoUrl ? [{ type: 'video', url: media.videoUrl }] : []), ...(media.voiceNoteUrl ? [{ type: 'audio', url: media.voiceNoteUrl }] : []) ]; return { fromNumber: $json.fromNumber, customerMessage: $('Final customer message').first().json.userMessage || '', botReply: $json.output || '', botMedia: items.filter((i) => /^https?:\\/\\//i.test(i.url)), restaurantId: 'restaurant-1' }; })() }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "text"
+            }
+          }
+        }
+      },
+      "id": "90225f5f-ee97-4b0b-b114-95caeb07e7b1",
+      "name": "Save menu chat in history",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1056,
+        6208
+      ],
+      "notesInFlow": true,
+      "onError": "continueRegularOutput",
+      "notes": "Saves the customer question, the menu text and every picture/PDF the bot sent, so the CRM chat shows exactly what the customer saw."
+    },
+    {
+      "parameters": {
+        "jsCode": "let output = $input.first().json.output || '';\noutput = output.replace(/\\*\\*\\*SEND_DINNER_IMAGES\\*\\*\\*/g, '').trim();\nreturn [{ json: { output, category: 'Dinner Buffet', fromNumber: $('Final customer message').first().json.fromNumber } }];"
+      },
+      "id": "abb7ca5b-4cc6-49a2-b18f-5f1814144ebc",
+      "name": "Prepare Dinner menu reply",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        6032
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "let output = $input.first().json.output || '';\noutput = output.replace(/\\*\\*\\*SEND_WEDDING_IMAGES\\*\\*\\*/g, '').trim();\nreturn [{ json: { output, category: 'Wedding Package', fromNumber: $('Final customer message').first().json.fromNumber } }];"
+      },
+      "id": "bc3a91a3-97b6-4dbc-8145-06e92c7cbc99",
+      "name": "Prepare Wedding menu reply",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        6208
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ 'https://graph.facebook.com/v18.0/' + $('Read message details').first().json.toNumber + '/messages' }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "whatsAppApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"messaging_product\": \"whatsapp\",\n  \"status\": \"read\",\n  \"message_id\": \"{{ $(\"Read message details\").first().json.messages[0].id }}\"\n}",
+        "options": {}
+      },
+      "id": "f55fb674-651c-4443-8ff4-1f522b1738ce",
+      "name": "Mark as read (wedding)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        752,
+        6032
+      ],
+      "credentials": {
+        "whatsAppApi": {
+          "id": "7jEgcxbHmIsq6HBM",
+          "name": "WhatsApp account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "let output = $input.first().json.output || '';\noutput = output.replace(/\\*\\*\\*SEND_POOL_IMAGES\\*\\*\\*/g, '').trim();\nreturn [{ json: { output, category: 'Pool/Gym', fromNumber: $('Final customer message').first().json.fromNumber } }];"
+      },
+      "id": "acb26367-89bb-4307-bfd1-9e1552765dc5",
+      "name": "Prepare Pool menu reply",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        6384
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = String($input.first().json.output || '').replace(/\\x60\\x60\\x60(?:json)?/gi, '').trim();\nconst result = JSON.parse(raw);\nif (result.action !== 'create_reminder' || !result.reminder || !result.reminder.reason) throw new Error('AI follow-up reminder output is incomplete.');\nconst event = $('Read message details').first().json;\nconst message = event.messages?.[0] || {};\nconst receivedAt = new Date(Number(message.timestamp) * 1000);\nif (!message.id || Number.isNaN(receivedAt.getTime())) throw new Error('WhatsApp message ID or timestamp is missing.');\nreturn [{ json: { restaurantId: 'restaurant-1', fromNumber: $('Final customer message').first().json.fromNumber, customerName: String(result.customer?.name || event.contacts?.[0]?.profile?.name || '').trim(), reason: result.reminder.reason, customerMessage: String(result.reminder.customerMessage || $('Final customer message').first().json.userMessage || '').trim(), receivedAt: receivedAt.toISOString(), sourceMessageId: message.id, reply: String(result.reply || '').trim() } }];"
+      },
+      "id": "402f1e94-23e2-4d7f-a3d1-69d453486a1c",
+      "name": "Prepare follow-up reminder",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        6832
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://magenta-yak-337378.hostingersite.com/api/reminders/from-whatsapp",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { fromNumber: $json.fromNumber, restaurantId: $json.restaurantId, customerName: $json.customerName, reason: $json.reason, customerMessage: $json.customerMessage, receivedAt: $json.receivedAt, sourceMessageId: $json.sourceMessageId } }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "5b49cd88-929b-4c6f-9645-62ddd7cdcdea",
+      "name": "Save follow-up reminder in CRM",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        752,
+        6832
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "Wz9ioRvsKWLXFBlA",
+          "name": "Header Auth account"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "operation": "send",
+        "phoneNumberId": "={{ $('Read message details').first().json.toNumber }}",
+        "recipientPhoneNumber": "={{ '+' + $('Prepare follow-up reminder').first().json.fromNumber }}",
+        "textBody": "={{ $('Prepare follow-up reminder').first().json.reply }}",
+        "additionalFields": {}
+      },
+      "id": "2b5d6a6d-6317-48d9-9f42-e4703432c892",
+      "name": "Reply: follow-up scheduled",
+      "type": "n8n-nodes-base.whatsApp",
+      "typeVersion": 1.1,
+      "position": [
+        1056,
+        6832
+      ],
+      "webhookId": "e18a3094-c05b-4c2f-872a-bd6de2e0c655",
+      "credentials": {
+        "whatsAppApi": {
+          "id": "7jEgcxbHmIsq6HBM",
+          "name": "WhatsApp account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "send",
+        "phoneNumberId": "={{ $('Read message details').first().json.toNumber }}",
+        "recipientPhoneNumber": "={{ '+' + $('Prepare follow-up reminder').first().json.fromNumber }}",
+        "textBody": "Maazrat, abhi aapka follow-up reminder set nahi ho saka. Hamari team se dobara rabta karein.",
+        "additionalFields": {}
+      },
+      "id": "0d36632a-c297-49d3-a6c9-f3d134c65f73",
+      "name": "Reply: follow-up could not be saved",
+      "type": "n8n-nodes-base.whatsApp",
+      "typeVersion": 1.1,
+      "position": [
+        1056,
+        7008
+      ],
+      "webhookId": "5bf88249-eeae-4315-b2b4-2557a6dbe7f5",
+      "credentials": {
+        "whatsAppApi": {
+          "id": "7jEgcxbHmIsq6HBM",
+          "name": "WhatsApp account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ 'https://graph.facebook.com/v18.0/' + $('Read message details').first().json.toNumber + '/messages' }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "whatsAppApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"messaging_product\": \"whatsapp\",\n  \"status\": \"read\",\n  \"message_id\": \"{{ $(\"Read message details\").first().json.messages[0].id }}\"\n}",
+        "options": {}
+      },
+      "id": "ccd65f78-46ca-4a2e-ba85-961c0cadf64c",
+      "name": "Mark as read (normal reply)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        448,
+        7472
+      ],
+      "credentials": {
+        "whatsAppApi": {
+          "id": "7jEgcxbHmIsq6HBM",
+          "name": "WhatsApp account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://magenta-yak-337378.hostingersite.com/api/chats/whatsapp",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"customerId\": \"{{ $('Final customer message').first().json.fromNumber }}\",\n  \"customerMessage\": {{ JSON.stringify($('Final customer message').first().json.userMessage) }},\n  \"botReply\": {{ JSON.stringify($('Check AI reply (safety)').first().json.output) }},\n  \"fromNumber\": \"{{ $('Final customer message').first().json.fromNumber }}\",\n  \"phone\": \"{{ $('Final customer message').first().json.fromNumber }}\",\n  \"direction\": \"bot\",\n  \"source\": \"whatsapp\",\n  \"restaurantId\": \"restaurant-1\"\n}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "text"
+            }
+          }
+        }
+      },
+      "id": "41b74b62-0fcd-4309-b19e-2b68049b8f9d",
+      "name": "Save chat in CRM",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        752,
+        7472
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "send",
+        "phoneNumberId": "={{ $('Read message details').first().json.toNumber }}",
+        "recipientPhoneNumber": "={{ '+' + $('Final customer message').first().json.fromNumber }}",
+        "textBody": "={{ $('Check AI reply (safety)').first().json.output }}",
+        "additionalFields": {}
+      },
+      "id": "a8011afc-f62a-4218-b11d-f77732b8a1f9",
+      "name": "Reply: normal answer",
+      "type": "n8n-nodes-base.whatsApp",
+      "typeVersion": 1.1,
+      "position": [
+        1056,
+        7472
+      ],
+      "webhookId": "655013fa-892d-473c-99b3-162fd2a53acc",
+      "credentials": {
+        "whatsAppApi": {
+          "id": "7jEgcxbHmIsq6HBM",
+          "name": "WhatsApp account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Customer sends WhatsApp message": {
+      "main": [
+        [
+          {
+            "node": "Only real customer messages (ignore status updates)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Only real customer messages (ignore status updates)": {
+      "main": [
+        [
+          {
+            "node": "Read message details",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read message details": {
+      "main": [
+        [
+          {
+            "node": "Is it a photo or file?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is it a photo or file?": {
+      "main": [
+        [
+          {
+            "node": "Save photo/file in CRM",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Is it a voice note?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save photo/file in CRM": {
+      "main": [
+        [
+          {
+            "node": "Is it a payment proof for a booking?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Create Human Agent Request in CRM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is it a payment proof for a booking?": {
+      "main": [
+        [
+          {
+            "node": "Reply: payment proof received",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Reply: file received",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Human Agent Request in CRM": {
+      "main": [
+        [
+          {
+            "node": "Reply: connecting you to a person",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reply: connecting you to a person": {
+      "main": [
+        [
+          {
+            "node": "Alert CS team on WhatsApp",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Save hand-off in chat history",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is it a voice note?": {
+      "main": [
+        [
+          {
+            "node": "Get voice note link",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Use typed text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get voice note link": {
+      "main": [
+        [
+          {
+            "node": "Download voice note",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download voice note": {
+      "main": [
+        [
+          {
+            "node": "Voice note to text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Voice note to text": {
+      "main": [
+        [
+          {
+            "node": "Use voice text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Use voice text": {
+      "main": [
+        [
+          {
+            "node": "Combine text sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Use typed text": {
+      "main": [
+        [
+          {
+            "node": "Combine text sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine text sources": {
+      "main": [
+        [
+          {
+            "node": "Final customer message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Final customer message": {
+      "main": [
+        [
+          {
+            "node": "Cancel pending follow-up",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cancel pending follow-up": {
+      "main": [
+        [
+          {
+            "node": "Is a person handling this chat?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is a person handling this chat?": {
+      "main": [
+        [
+          {
+            "node": "Person is handling?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Person is handling?": {
+      "main": [
+        [
+          {
+            "node": "Save message for the agent (bot stays silent)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Check: did customer refuse the advance?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check: did customer refuse the advance?": {
+      "main": [
+        [
+          {
+            "node": "Customer refused the advance?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Create Human Agent Request in CRM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Customer refused the advance?": {
+      "main": [
+        [
+          {
+            "node": "Reply: refusal noted",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Load menus and prices",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reply: refusal noted": {
+      "main": [
+        [
+          {
+            "node": "Save refusal reply in chat history",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save refusal reply in chat history": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Create Human Agent Request in CRM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load menus and prices": {
+      "main": [
+        [
+          {
+            "node": "Load room types",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Create Human Agent Request in CRM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load room types": {
+      "main": [
+        [
+          {
+            "node": "Load closed dates",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Create Human Agent Request in CRM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load closed dates": {
+      "main": [
+        [
+          {
+            "node": "Build menu knowledge for AI",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Create Human Agent Request in CRM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build menu knowledge for AI": {
+      "main": [
+        [
+          {
+            "node": "Load AI instructions from CRM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load AI instructions from CRM": {
+      "main": [
+        [
+          {
+            "node": "Load approved learned answers",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load approved learned answers": {
+      "main": [
+        [
+          {
+            "node": "Load customer bookings and payments",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Create Human Agent Request in CRM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load customer bookings and payments": {
+      "main": [
+        [
+          {
+            "node": "Load upcoming availability",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Create Human Agent Request in CRM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load upcoming availability": {
+      "main": [
+        [
+          {
+            "node": "AI Agent (the brain)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent (the brain)": {
+      "main": [
+        [
+          {
+            "node": "Check AI reply (safety)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent (the brain)",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mistral backup model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent (the brain)",
+            "type": "ai_languageModel",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Chat memory (per customer)": {
+      "ai_memory": [
+        [
+          {
+            "node": "AI Agent (the brain)",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check AI reply (safety)": {
+      "main": [
+        [
+          {
+            "node": "Route the AI answer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route the AI answer": {
+      "main": [
+        [
+          {
+            "node": "Mark as read (hand-off)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Read booking JSON",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mark as read (menu pictures)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Dinner menu reply",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Wedding menu reply",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Pool menu reply",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare follow-up reminder",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mark as read (normal reply)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark as read (hand-off)": {
+      "main": [
+        [
+          {
+            "node": "Create Human Agent Request in CRM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read booking JSON": {
+      "main": [
+        [
+          {
+            "node": "Prepare availability check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare availability check": {
+      "main": [
+        [
+          {
+            "node": "Corporate booking? (skips slot check)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Create Human Agent Request in CRM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Corporate booking? (skips slot check)": {
+      "main": [
+        [
+          {
+            "node": "Save booking in CRM",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Check slot availability",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save booking in CRM": {
+      "main": [
+        [
+          {
+            "node": "Was the booking saved?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Create Human Agent Request in CRM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Was the booking saved?": {
+      "main": [
+        [
+          {
+            "node": "Is the payment account set up?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Report booking problem (CRM + CS)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is the payment account set up?": {
+      "main": [
+        [
+          {
+            "node": "Reply: booking saved + how to pay",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Report missing payment account (CRM + CS)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reply: booking saved + how to pay": {
+      "main": [
+        [
+          {
+            "node": "Save payment message in chat history",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Create Human Agent Request in CRM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Report missing payment account (CRM + CS)": {
+      "main": [
+        [
+          {
+            "node": "Reply: team will share payment details",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reply: team will share payment details": {
+      "main": [
+        [
+          {
+            "node": "Save payment-details reply in chat history",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Report booking problem (CRM + CS)": {
+      "main": [
+        [
+          {
+            "node": "Reply: team will confirm booking",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reply: team will confirm booking": {
+      "main": [
+        [
+          {
+            "node": "Save booking-problem reply in chat history",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check slot availability": {
+      "main": [
+        [
+          {
+            "node": "Is the slot free?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Create Human Agent Request in CRM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is the slot free?": {
+      "main": [
+        [
+          {
+            "node": "Save booking in CRM",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Reply: offer other free slots",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark as read (menu pictures)": {
+      "main": [
+        [
+          {
+            "node": "Prepare Hi-Tea menu reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Hi-Tea menu reply": {
+      "main": [
+        [
+          {
+            "node": "Reply: text with menu",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Collect menu pictures",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Save menu chat in history",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Collect menu pictures": {
+      "main": [
+        [
+          {
+            "node": "Send menu pictures",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Dinner menu reply": {
+      "main": [
+        [
+          {
+            "node": "Reply: text with menu",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Collect menu pictures",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Save menu chat in history",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Wedding menu reply": {
+      "main": [
+        [
+          {
+            "node": "Mark as read (wedding)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Reply: text with menu",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Collect menu pictures",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Save menu chat in history",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Pool menu reply": {
+      "main": [
+        [
+          {
+            "node": "Reply: text with menu",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Collect menu pictures",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Save menu chat in history",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare follow-up reminder": {
+      "main": [
+        [
+          {
+            "node": "Save follow-up reminder in CRM",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Reply: follow-up could not be saved",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save follow-up reminder in CRM": {
+      "main": [
+        [
+          {
+            "node": "Reply: follow-up scheduled",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Reply: follow-up could not be saved",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark as read (normal reply)": {
+      "main": [
+        [
+          {
+            "node": "Save chat in CRM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save chat in CRM": {
+      "main": [
+        [
+          {
+            "node": "Reply: normal answer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "553ebb2d-88e0-43e5-a63d-92b87d22f315",
+  "meta": {
+    "instanceId": "58a3e297c2daa1f0c2db08c4b308bb44c5b0deec97791492d6bb6587cb46c3d0"
+  },
+  "nodeGroups": [],
+  "id": "lQ5uujADVGScYaHH",
+  "tags": []
+}

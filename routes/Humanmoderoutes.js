@@ -1,0 +1,22 @@
+const express = require("express");
+const router = express.Router();
+
+const auth = require("../middleware/auth");
+const {
+  checkHumanMode,
+  toggleHumanMode,
+  sendAgentReply,
+  sendMediaMessage,
+  uploadMiddleware,
+} = require("../controllers/Humanmodecontroller");
+
+console.log("✅ [humanModeRoutes] File loaded");
+
+router.get("/check/:phone", checkHumanMode);
+router.put("/toggle/:phone", auth, toggleHumanMode);
+router.post("/reply", auth, sendAgentReply);
+router.post("/send-media", auth, uploadMiddleware, sendMediaMessage);
+
+console.log("✅ [humanModeRoutes] 4 routes registered under /api/human-mode");
+
+module.exports = router;

@@ -1093,6 +1093,21 @@ exports.capturePaymentScreenshot = async (req, res) => {
       }
       await corporateBooking.save();
     }
+    if (attachedBooking) {
+      const bookingName = attachedBooking.package || attachedBooking.selectedMenuName || attachedBooking.packageName ||
+        (attachedBooking.bookingType === "wedding" ? "Wedding booking" :
+          attachedBooking.bookingType === "corporate" ? "Corporate booking" : "Booking");
+      const amount = Number(attachedBooking.advanceAmount || attachedBooking.quotation?.advanceRequired || 0);
+      void publishDashboardNotification(req, {
+        restaurantId: attachedBooking.restaurantId,
+        sourceKey: `payment_proof_received:${attachedBooking._id}:${Date.now()}`,
+        type: "payment_proof_received",
+        title: "Customer sent payment proof",
+        message: `${attachedBooking.customerName || "Customer"} · ${bookingName}${amount ? ` · Rs ${amount.toLocaleString("en-PK")}` : ""}`,
+        entityType: "booking",
+        entityId: String(attachedBooking._id),
+      }).catch((error) => console.error("Dashboard payment proof notification failed:", error));
+    }
     await Chat.create({
       restaurantId,
       customerPhone: attachedBooking?.customerPhone || phone,

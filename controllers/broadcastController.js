@@ -74,6 +74,7 @@ async function loadAudienceData(restaurantId) {
       name: String(name || "").trim(),
       bookings: [],
       conversations: [],
+      inboundMessages: [],
       latestInboundAt: null,
     });
     const customer = customers.get(normalized);
@@ -99,9 +100,13 @@ async function loadAudienceData(restaurantId) {
     const customer = getCustomer(chat.customerPhone, chat.customerName);
     if (!customer) continue;
     if ((chat.sender === "customer" || chat.direction === "customer_to_bot") && chat.createdAt) {
-      customer.conversations.push(String(chat.customerMessage || ""));
+      const message = String(chat.customerMessage || "").trim();
+      customer.conversations.push(message);
       const timestamp = new Date(chat.createdAt);
-      if (!Number.isNaN(timestamp.getTime()) && (!customer.latestInboundAt || timestamp > customer.latestInboundAt)) customer.latestInboundAt = timestamp;
+      if (!Number.isNaN(timestamp.getTime())) {
+        customer.inboundMessages.push({ message, createdAt: timestamp });
+        if (!customer.latestInboundAt || timestamp > customer.latestInboundAt) customer.latestInboundAt = timestamp;
+      }
     }
   }
 
@@ -138,6 +143,26 @@ function matchesAudience(customer, category, item) {
   return matchingBookings || matchingMessages;
 }
 
+function getMenuLeadContact(customer, category) {
+  const aliases = CATEGORY_ALIASES[category] || [category];
+  const categoryMatches = (text) => aliases.some((alias) => hasPhrase(text, alias));
+  const messages = customer.inboundMessages.filter(({ message }) => categoryMatches(message));
+  const bookings = customer.bookings.filter((booking) => {
+    const bookingText = `${booking.bookingCategory || ""} ${booking.package || ""}`;
+    return booking.bookingCategory === category || categoryMatches(bookingText);
+  });
+  const latestMessage = messages.reduce((latest, entry) =>
+    !latest || entry.createdAt > latest.createdAt ? entry : latest, null);
+  return {
+    name: customer.name || "WhatsApp Customer",
+    phone: customer.phone,
+    questions: messages.length,
+    lastAskedAt: latestMessage?.createdAt || null,
+    lastMessage: latestMessage?.message || "",
+    bookingInterest: bookings.length > 0,
+  };
+}
+
 async function getSegment(restaurantId, category, item) {
   const { customers, categories } = await loadAudienceData(restaurantId);
   if (!category) return { customers: [], categories, templateConfigured: Boolean(process.env.WHATSAPP_BROADCAST_TEMPLATE_NAME) };
@@ -163,6 +188,23 @@ exports.getBroadcastAudiences = async (req, res) => {
   try {
     const category = String(req.query.category || "").trim();
     const item = String(req.query.item || "").trim();
+    if (!category && req.query.includeContacts === "true") {
+      const { customers, categories } = await loadAudienceData(req.admin.restaurantId);
+      const menuAudiences = categories.map((entry) => ({
+        category: entry.name,
+        contacts: customers
+          .filter((customer) => matchesAudience(customer, entry.name, ""))
+          .map((customer) => getMenuLeadContact(customer, entry.name))
+          .sort((a, b) => b.questions - a.questions ||
+            (b.lastAskedAt?.getTime() || 0) - (a.lastAskedAt?.getTime() || 0)),
+      }));
+      return res.json({
+        success: true,
+        categories,
+        menuAudiences,
+        generatedAt: new Date().toISOString(),
+      });
+    }
     const { customers, categories, templateConfigured } = await getSegment(req.admin.restaurantId, category, item);
     const cutoff = Date.now() - 24 * 60 * 60 * 1000;
     const openWindow = customers.filter((customer) => customer.latestInboundAt && customer.latestInboundAt.getTime() >= cutoff).length;

@@ -6,7 +6,7 @@ const dashboardNotificationSchema = new mongoose.Schema({
   type: {
     type: String,
     required: true,
-    enum: ["new_booking", "booking_cancelled", "customer_agreed", "customer_declined", "human_agent", "customer_frustrated"],
+    enum: ["new_booking", "booking_cancelled", "customer_agreed", "customer_declined", "human_agent", "customer_frustrated", "payment_received", "payment_proof_received"],
   },
   title: { type: String, required: true, trim: true, maxlength: 160 },
   message: { type: String, required: true, trim: true, maxlength: 1000 },

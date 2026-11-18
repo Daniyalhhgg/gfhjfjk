@@ -315,11 +315,16 @@ async function notifyCsTeam({
         type: "text",
         text: { body: caption },
       };
-    await axios.post(
+    const response = await axios.post(
       `https://graph.facebook.com/v18.0/${phoneNumberId}/messages`,
       payload,
       { headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" } }
     );
+    console.info("WhatsApp CS alert accepted by Meta", {
+      recipientType,
+      recipientLastFour: digitsOnly(csNumber).slice(-4),
+      messageId: response.data?.messages?.[0]?.id || null,
+    });
     return "";
   } catch (error) {
     const meta = error.response?.data;
@@ -1321,7 +1326,7 @@ exports.capturePaymentScreenshot = async (req, res) => {
       }
     }
     const customerReply = attachedBooking
-      ? (csWarning && /failed/i.test(csWarning)
+      ? (csWarning
         ? customerCsNotifyFailureText(language)
         : csNotificationSkipped ? proofSavedForSupportHoursText(language) : proofReceivedText(language))
       : language === "ur"

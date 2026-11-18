@@ -8,6 +8,8 @@ const Menu = require("../models/Menu");
 const Reminder = require("../models/Reminder");
 const { scheduleJob } = require("../services/reminderQueue");
 const { publishDashboardNotification } = require("../services/dashboardNotificationService");
+const { getBookingPaymentPolicyForCategory, calculateAdvanceAmount, setPaymentDeadline, deadlinePolicySnapshot } = require("../services/bookingPaymentPolicy");
+const { sendEventBookingCancellation } = require("../services/eventBookingCancellation");
 
 const RESTAURANT_ID = "restaurant-1";
 const SETUPS = ["Theatre", "Classroom", "U-Shape", "Boardroom", "Banquet"];
@@ -351,6 +353,22 @@ exports.createBooking = async (req, res) => {
   }
 };
 
+async function setCorporatePaymentDeadlineIfNeeded(booking) {
+  if (booking.stage !== "advance_payment" || Number(booking.quotation?.advancePercent ?? 20) <= 0 || booking.paymentDeadlineAt) return;
+  const currentPolicy = await getBookingPaymentPolicyForCategory(booking.restaurantId, "Corporate");
+  const policy = {
+    ...currentPolicy,
+    deadlineMode: booking.quotation.paymentDeadlineMode || currentPolicy.deadlineMode,
+    deadlineDurationValue: booking.quotation.paymentDeadlineDurationValue || currentPolicy.deadlineDurationValue,
+    deadlineDurationUnit: booking.quotation.paymentDeadlineDurationUnit || currentPolicy.deadlineDurationUnit,
+    deadlineTime: booking.quotation.paymentDeadlineTime || currentPolicy.deadlineTime,
+    deadlineAction: booking.quotation.paymentDeadlineAction || currentPolicy.deadlineAction,
+    appliesToCategory: booking.quotation.bookingPaymentPolicyEnabled ?? currentPolicy.appliesToCategory,
+  };
+  booking.advancePercent = Number(booking.quotation.advancePercent ?? policy.advancePercent);
+  setPaymentDeadline(booking, { ...policy, advancePercent: booking.advancePercent });
+}
+
 exports.updateBooking = async (req, res) => {
   try {
     const booking = await WeddingBooking.findOne({ _id: req.params.id, restaurantId: req.admin.restaurantId, bookingType: "corporate" });
@@ -363,6 +381,7 @@ exports.updateBooking = async (req, res) => {
       if (!STAGES.some(([id]) => id === req.body.stage) || req.body.stage === "confirmed") return res.status(400).json({ success: false, message: "Use a valid corporate workflow stage; use confirm endpoint for confirmation." });
       stage(booking, req.body.stage, req.admin, String(req.body.stageNote || ""));
     }
+    await setCorporatePaymentDeadlineIfNeeded(booking);
     if (req.body.paymentProofUrl !== undefined && req.body.paymentProofUrl !== booking.paymentProofUrl) {
       booking.paymentVerified = false;
       booking.paymentStatus = req.body.paymentProofUrl ? "proof_received" : "unpaid";
@@ -397,11 +416,42 @@ exports.updateStage = async (req, res) => {
     if (next === "no_booking" && booking.stage === "confirmed") await releaseVenue(booking);
     if (next === "interested" && req.body.interested === false) stage(booking, "follow_up", req.admin, note || "Client requested follow up later.");
     else stage(booking, next, req.admin, note || "");
+    await setCorporatePaymentDeadlineIfNeeded(booking);
     await booking.save();
     if (booking.stage === "no_booking" && previousStage !== "no_booking" && !rejectingPaymentProof) void notifyCustomerDeclined(req, booking);
     res.json({ success: true, data: await populated(WeddingBooking.findById(booking._id)) });
   } catch (error) {
     console.error("updateCorporateStage error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+exports.cancelBooking = async (req, res) => {
+  try {
+    const booking = await WeddingBooking.findOne({ _id: req.params.id, restaurantId: req.admin.restaurantId, bookingType: "corporate" });
+    if (!booking) return res.status(404).json({ success: false, message: "Corporate booking not found." });
+    const reason = String(req.body.reason || "").trim();
+    if (!reason) return res.status(400).json({ success: false, message: "A cancellation reason is required." });
+    if (reason.length > 500) return res.status(400).json({ success: false, message: "Cancellation reason must be 500 characters or fewer." });
+    if (["executed", "feedback"].includes(booking.stage)) return res.status(409).json({ success: false, message: "Completed corporate events cannot be cancelled." });
+    if (booking.stage === "no_booking" && booking.cancellationMessageStatus !== "failed") {
+      return res.status(409).json({ success: false, message: "This corporate booking is already cancelled." });
+    }
+    if (booking.stage !== "no_booking") {
+      if (booking.stage === "confirmed") await releaseVenue(booking);
+      stage(booking, "no_booking", req.admin, reason);
+      void notifyCustomerDeclined(req, booking);
+    }
+    booking.cancellationReason = reason;
+    await booking.save();
+    const warning = await sendEventBookingCancellation({ req, booking, bookingType: "corporate", reason });
+    res.json({
+      success: true,
+      data: await populated(WeddingBooking.findById(booking._id)),
+      ...(warning ? { warning } : {}),
+    });
+  } catch (error) {
+    console.error("cancelCorporateBooking error:", error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -434,12 +484,20 @@ exports.createQuotation = async (req, res) => {
     booking.setupType = String(req.body.setupType || booking.answers.preferredVenueSetup || "").slice(0, 120);
     booking.selectedMenuName = menu.title;
     booking.packageName = "Corporate Menu";
+    const paymentPolicy = await getBookingPaymentPolicyForCategory(req.admin.restaurantId, "Corporate");
     booking.quotation = {
       guests, menuPricePerPerson: menu.price, menuSubtotal, hallRental: venueRent,
       decorCost: 0, addOns: [], discount: 0, taxPercent, taxAmount, total,
-      advanceRequired: Math.round(total * 0.2 * 100) / 100,
+      advanceRequired: calculateAdvanceAmount(total, paymentPolicy.advancePercent),
+      advancePercent: paymentPolicy.advancePercent,
+      ...deadlinePolicySnapshot(paymentPolicy),
       rulesApplied: [], notes: String(req.body.notes || ""), generatedAt: new Date(),
     };
+    booking.advancePercent = paymentPolicy.advancePercent;
+    if (paymentPolicy.advancePercent === 0) booking.paymentStatus = "not_required";
+    booking.paymentDeadlineAt = null;
+    booking.paymentDeadlineAction = "no_action";
+    booking.paymentDeadlineHandledAt = null;
     stage(booking, "proposal", req.admin, "Corporate quotation: configured menu price × guests + venue rate + approved tax.");
     await booking.save();
     res.json({ success: true, data: await populated(WeddingBooking.findById(booking._id)) });
@@ -507,11 +565,11 @@ exports.confirmBooking = async (req, res) => {
     const booking = await WeddingBooking.findOne({ _id: req.params.id, restaurantId: req.admin.restaurantId, bookingType: "corporate" });
     if (!booking) return res.status(404).json({ success: false, message: "Corporate booking not found." });
     if (booking.stage === "confirmed" && booking.confirmationMessageStatus !== "failed") return res.status(409).json({ success: false, message: "Corporate event is already confirmed." });
-    if (!booking.paymentVerified) return res.status(409).json({ success: false, message: "CS must verify the advance payment first." });
+    if (Number(booking.quotation?.advancePercent ?? 20) > 0 && !booking.paymentVerified) return res.status(409).json({ success: false, message: "CS must verify the advance payment first." });
     if (!booking.agreementUrl) return res.status(409).json({ success: false, message: "Save the signed agreement/contract before confirmation." });
     await reserveVenue(booking, req.admin);
     booking.answers.eventDate = eventDateFor(booking);
-    stage(booking, "confirmed", req.admin, "Advance and agreement verified; shared venue/date inventory reserved.");
+    stage(booking, "confirmed", req.admin, Number(booking.quotation?.advancePercent ?? 20) > 0 ? "Advance and agreement verified; shared venue/date inventory reserved." : "No advance required; signed agreement checked and shared venue/date inventory reserved.");
     await booking.save();
     const date = eventDateFor(booking);
     const message = [
@@ -524,7 +582,7 @@ exports.confirmBooking = async (req, res) => {
       `Time: ${booking.answers.eventTiming || "As agreed"}`,
       `Guests: ${booking.quotation.guests || booking.answers.guests}`,
       `Menu: ${booking.selectedMenuName || "Corporate Menu"}`,
-      `Advance verified: Rs ${Number(booking.quotation.advanceRequired || 0).toLocaleString("en-PK")}`,
+      Number(booking.quotation.advancePercent ?? 20) > 0 ? `Advance verified: Rs ${Number(booking.quotation.advanceRequired || 0).toLocaleString("en-PK")}` : "Advance required: Rs 0",
       "", "Thank you for choosing Hotel d'GATES. We look forward to hosting your event.",
     ].join("\n");
     let warning = "";

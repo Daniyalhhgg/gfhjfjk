@@ -2,13 +2,13 @@
 
 Base URL examples below use `https://YOUR_API_HOST`. Replace it with the deployed CRM backend URL. Public endpoints default to `restaurant-1` when `restaurantId` is omitted.
 
-If `N8N_API_KEY` is configured on the backend, send this header on every endpoint documented here:
+For existing public endpoints, send this header when `N8N_API_KEY` is configured on the backend:
 
 ```http
 x-api-key: YOUR_N8N_API_KEY
 ```
 
-The key is optional only when the backend environment variable is unset. Keep it in n8n credentials/environment variables; do not put it in a browser or public frontend.
+The support rule evaluator is stricter: it requires `N8N_API_KEY` to be configured on the backend and the matching header on the request. Keep the key in n8n credentials/environment variables; do not put it in a browser or public frontend.
 
 ## Dashboard notifications
 
@@ -45,6 +45,25 @@ Update buffet or Wedding windows in Menu → Menu details using ranges such as `
 
 The editable n8n workflow `n8n-workflows/restaurant-whatsapp-ai-bot.json` maps the live room timings and hotel contact fields into its CRM menu context. Re-import the workflow in n8n after updating the deployed copy.
 
+## Human support workflow settings
+
+The CRM's **Support Workflow** page stores human-agent availability, request detection, customer messages, pending-request timeout, and escalation contacts per restaurant. Human-support requests and escalations follow a weekly schedule, with each weekday using custom Pakistan-time hours, open all day, or closed all day; global 24/7 and unavailable modes apply to human support. Internal booking and payment alerts to staff are always sent when their configured WhatsApp recipients and provider credentials are available; human-support hours do not suppress them. Booking/payment records, verification, customer confirmations, CRM events, and socket updates continue normally. When human support is unavailable, the bot continues helping and does not create a new human request; pending escalations wait until the next human-support opening. Specific Roman Urdu, Urdu-script, and English phrases for booking changes/cancellations, booking problems, payment issues, refunds, complaints, and room issues are preloaded into the custom phrase list once. Existing custom phrases are preserved. Phrase matching is substring-based; timeout and automatic resolution messages remain off until enabled by an admin.
+
+Authenticated CRM endpoints:
+
+- `GET /api/agent-requests/settings`
+- `PUT /api/agent-requests/settings` with the saved support settings object
+- `GET /api/agent-requests/keywords`
+- `PUT /api/agent-requests/keywords` with `{ "words": ["please call me"] }`
+
+The WhatsApp workflow uses `POST /api/agent-requests/evaluate` with `x-api-key` and `{ "restaurantId": "restaurant-1", "phone": "...", "message": "..." }`. It returns whether an enabled built-in/custom phrase matched, whether a human agent is currently available under the human-support schedule, the configured handoff message, the configured initial human-request WhatsApp recipient, and the first escalation contact. A matching request routes to request creation only when human support is available; it does not switch the customer to human mode. An agent must explicitly take over. If the evaluation endpoint fails, the workflow must not infer schedule availability or initiate a human handoff.
+
+When the AI cannot answer a question because requested hotel/menu details are missing from live CRM data and approved inquiry learning, it replies plainly that the details are unavailable and includes an internal marker. The workflow strips that marker from the customer reply and chat history, then calls `POST /api/agent-requests/information-needed` with `x-api-key`, `restaurantId`, `phone`, `customerMessage`, `botReply`, and the WhatsApp `sourceMessageId`. This creates an idempotent **Customer asked for unavailable information** dashboard alert for CS; it does not create an Agent Request, transfer the customer to human mode, or send an extra customer-facing message. These alerts are not suppressed by human-support hours. Configure the same `N8N_API_KEY` in n8n and the backend.
+
+The backend checks current mode before processing text or media and checks again before the AI handles a text message. After an agent takes over, the mode remains in MongoDB when the CRM chat is closed or reopened. Resolving a request returns the mode to bot; the optional configured resolution message is sent as an outgoing support message and is not reprocessed as customer input. If enabled, a backend scheduler checks open requests every 30 seconds, expires overdue requests, sends the timeout message, and alerts later hierarchy levels. Timeout is disabled by default. Configure WhatsApp credentials on the backend for scheduled customer and escalation messages.
+
+After updating the backend, update/import `n8n-workflows/Hotel d'GATES - WhatsApp AI Booking Bot.json` in n8n and test it before activation. The CRM Support Workflow page does not publish workflow changes automatically.
+
 ## Manage the WhatsApp AI Agent prompt
 
 The AI Agent system prompt is editable in the CRM sidebar under **AI Agent Prompt**. The editor saves revisions in the restaurant settings record, keeps up to 20 previous versions, and allows restoring a prior version or resetting to the original prompt extracted from the existing workflow.
@@ -54,6 +73,8 @@ The workflow node `Get live AI Agent prompt` calls:
 `GET /api/settings/agent-prompt/public?restaurantId=restaurant-1`
 
 It sends `x-api-key: $env.N8N_API_KEY`. This endpoint always requires a configured backend `N8N_API_KEY`; without it the request fails closed. The CRM editor endpoints are authenticated:
+
+The CRM's **Hotel Setup → Hotel Information** page stores the hotel address and Google Maps share link in the restaurant settings record. Staff can update either value without editing or re-importing the workflow. The authenticated CRM endpoints are `GET /api/settings/hotel-info` and `PUT /api/settings/hotel-info` with `{ "address": "...", "mapUrl": "https://maps.app.goo.gl/..." }`. The workflow loads the current values for each AI execution using `GET /api/settings/hotel-info/public?restaurantId=restaurant-1` with `x-api-key: $env.N8N_API_KEY`; only verified values entered by staff are shared with customers. If location details are blank, the AI says it does not have the verified address and sends the existing private CRM missing-information alert.
 
 - `GET /api/settings/agent-prompt`
 - `PUT /api/settings/agent-prompt` with `{ "content": "..." }`
@@ -244,7 +265,7 @@ curl -H "x-api-key: YOUR_N8N_API_KEY" \
   "https://YOUR_API_HOST/api/rooms/availability/check?restaurantId=restaurant-1&checkInDate=2026-06-20&checkOutDate=2026-06-22&roomTypeId=ROOM_TYPE_ID&rooms=1"
 ```
 
-The response reports availability for every night in the stay. An unavailable response can include up to three alternatives (another configured room type for the same dates or nearby dates). WhatsApp room booking payloads must include `roomTypeId`, `roomType`, `checkOutDate`, and `numberOfRooms`; the backend rechecks inventory and calculates the total as configured nightly rate × room count × nights, then sets the 20% advance.
+The response reports availability for every night in the stay. An unavailable response can include up to three alternatives (another configured room type for the same dates or nearby dates). WhatsApp room booking payloads must include `roomTypeId`, `roomType`, `checkOutDate`, and `numberOfRooms`; the backend rechecks inventory and calculates the total as configured nightly rate × room count × nights, then applies the current CRM booking-payment policy.
 
 ### CRM room management endpoints
 
@@ -416,11 +437,14 @@ On receipt, the booking proof is saved and the customer receives a localized yes
 
 These n8n-only endpoints require `x-api-key`:
 
+- `GET /api/settings/booking-payment-policy/public?restaurantId=restaurant-1` returns the live advance percentage, payment deadline rules, and post-deadline action used by the WhatsApp prompt.
 - `GET /api/bookings/customer-context?restaurantId=restaurant-1&phone=923001234567` returns matching standard, wedding, and corporate records for the sender. The AI uses this live CRM context to recognize staff-created bookings and not contradict saved booking/payment status.
 - `POST /api/bookings/confirm-payment-proof` with `{ "restaurantId": "restaurant-1", "customerPhone": "923001234567", "message": "Yes" }` handles the yes/no response to the uploaded-proof question. A confirmed response forwards the proof to CS; a negative response asks for a correct proof. Unrelated messages return `data.active: false` and continue through normal routing.
 - `POST /api/bookings/decline-advance` with `{ "restaurantId": "restaurant-1", "customerPhone": "923001234567", "message": "I cannot pay the advance right now" }` records a customer's decline on the existing pending standard booking, sends the booking details and reason to CS, and returns a localized acknowledgement. It does not create a booking if no pending record exists.
 
-The standard booking is created after the customer confirms the booking request and its required details are collected; a separate promise to pay the advance is not required before saving the pending request. This lets CS see the customer's details if they later decline or need help with the advance. The 20% advance remains unverified until CS checks the submitted proof.
+The standard booking is created after the customer confirms the booking request and its required details are collected; a separate promise to pay the advance is not required before saving the pending request. This lets CS see the customer's details if they later decline or need help with the advance. The advance percentage and deadline are snapshotted from CRM settings for each new booking. A 0% advance does not request or require proof, but staff confirmation is still required. Existing bookings keep their saved amount and deadline when settings change. Deadline actions are checked by the support automation service every 30 seconds; automatic cancellation only applies to unpaid bookings that do not have a proof awaiting review.
+
+The CRM setting defaults to 20% advance, a 24-hour payment window, and a CS follow-up alert (no automatic cancellation). The policy page lists current menu categories with an apply-policy checkbox; new menu categories are enabled by default. Turning a category off preserves its legacy 20% advance and disables configurable deadline actions for that category. Fixed same-day/next-day deadlines use Pakistan time; if that day's selected time has passed, the deadline rolls to the next day at the same time.
 
 ## Look up loyalty status
 
@@ -457,7 +481,7 @@ Configure these on the backend deployment:
 | `PAYMENT_ACCOUNT_NUMBER` | Optional company account number; provide this or an IBAN. |
 | `PAYMENT_IBAN` | Optional company IBAN; provide this or an account number. |
 | `WHATSAPP_PHONE_NUMBER_ID` / `WHATSAPP_ACCESS_TOKEN` | WhatsApp Cloud API credentials for booking confirmations, CS, and scheduled follow-ups. |
-| `WHATSAPP_CS_TEAM_NUMBER` | Optional CS WhatsApp number that receives customer payment proofs. |
+| `WHATSAPP_CS_TEAM_NUMBER` | Legacy fallback recipient when an alert-specific WhatsApp number is blank in CRM > Human Support Workflow. |
 
 Cloudinary variables are only needed for uploading menu media from the CRM; menu URLs can also be entered directly. n8n does not need Cloudinary credentials.
 
@@ -480,7 +504,7 @@ Date values must be real dates in `YYYY-MM-DD` format. Availability statuses are
 
 ### Current WhatsApp booking flow
 
-The shared WhatsApp workflow handles Wedding Package through the same AI booking action as other standard categories. The bot uses the active wedding package and its configured per-person price, collects the event date/time and guest count, quotes the CRM-based total and 20% advance, then creates a normal pending record through `POST /api/bookings/from-whatsapp`. The shared Wedding availability calendar is checked first. Payment screenshots are attached to that standard booking; CS can verify them from the unified Bookings page or the Wedding Payments page.
+The shared WhatsApp workflow handles Wedding Package through the same AI booking action as other standard categories. The bot uses the active wedding package and its configured per-person price, collects the event date/time and guest count, quotes the CRM-based total and configured advance, then creates a normal pending record through `POST /api/bookings/from-whatsapp`. The shared Wedding availability calendar is checked first. Payment screenshots are attached to that standard booking; CS can verify them from the unified Bookings page or the Wedding Payments page.
 
 The legacy `/api/weddings/enquiries/*` endpoints below remain available for existing records or integrations that explicitly use the former question-by-question enquiry workflow. The current WhatsApp workflow no longer calls them, and new standard bookings do not reserve a wedding hall or require the legacy quotation/agreement pipeline.
 
@@ -492,9 +516,9 @@ These require CRM admin authentication:
 - `GET /api/weddings/payment-instructions` — CRM-authenticated account instructions from the existing `PAYMENT_*` backend environment variables; the quotation-sharing draft includes these only when a complete account is configured.
 - `POST /api/weddings/bookings`, `PUT /api/weddings/bookings/:id`
 - `PATCH /api/weddings/bookings/:id/stage` — stage changes are recorded with actor and timestamp.
-- `POST /api/weddings/bookings/:id/quotation` — calculate configured menu × guests, hall rental, selected add-ons, configured tax and the 20% advance.
+- `POST /api/weddings/bookings/:id/quotation` — calculate configured menu × guests, hall rental, selected add-ons, configured tax and the current configured advance.
 - `PATCH /api/weddings/bookings/:id/verify-payment` — CS verifies a submitted payment-proof URL.
-- `PATCH /api/weddings/bookings/:id/confirm` — requires verified advance and a saved agreement URL; rechecks and reserves the selected hall/date.
+- `PATCH /api/weddings/bookings/:id/confirm` — requires verified advance when the configured advance is greater than 0, and always requires a saved agreement URL; rechecks and reserves the selected hall/date.
 - `POST /api/weddings/bookings/:id/reminder` — schedules the pre-event reminder through the CRM reminder queue.
 - `PATCH /api/weddings/bookings/:id/follow-up`, `PATCH /api/weddings/bookings/:id/no-booking`
 - `PATCH /api/weddings/bookings/:id/ai-replies/:replyId` — mark a stored WhatsApp AI question/reply reviewed.
@@ -519,7 +543,7 @@ Corporate venue rates and boardroom capacities were not supplied, so they are in
 
 ### Current WhatsApp booking flow
 
-The shared WhatsApp workflow handles Corporate through the same AI booking action as other standard categories. The bot uses the active CRM Corporate package/menu and its configured price basis, collects the event date/time and guest count, quotes the CRM-based total and 20% advance, then creates a normal pending record through `POST /api/bookings/from-whatsapp`. Because Corporate uses a separate venue calendar rather than the generic time-slot calendar, the workflow does not claim venue availability; the request remains pending. Payment screenshots are attached to that standard booking; CS can verify them from the unified Bookings page or the Corporate Payments page.
+The shared WhatsApp workflow handles Corporate through the same AI booking action as other standard categories. The bot uses the active CRM Corporate package/menu and its configured price basis, collects the event date/time and guest count, quotes the CRM-based total and configured advance, then creates a normal pending record through `POST /api/bookings/from-whatsapp`. Because Corporate uses a separate venue calendar rather than the generic time-slot calendar, the workflow does not claim venue availability; the request remains pending. Payment screenshots are attached to that standard booking; CS can verify them from the unified Bookings page or the Corporate Payments page.
 
 The legacy `/api/corporate/enquiries/*` endpoints remain available for existing records or integrations that explicitly use the former question-by-question enquiry workflow. The current WhatsApp workflow no longer calls them, and new standard bookings do not require the legacy quotation/agreement pipeline.
 
@@ -529,9 +553,9 @@ These require CRM admin authentication except where stated:
 
 - `GET /api/corporate/stages`, `GET /api/corporate/bookings`, `POST /api/corporate/bookings`, `GET /api/corporate/bookings/:id`, `PUT /api/corporate/bookings/:id`
 - `PATCH /api/corporate/bookings/:id/stage` — changes pipeline stage with actor and timestamp.
-- `POST /api/corporate/bookings/:id/quotation` — calculates configured menu × guests + corporate venue rate + configured tax, and the 20% advance. It requires a configured venue capacity/rate and approved tax.
+- `POST /api/corporate/bookings/:id/quotation` — calculates configured menu × guests + corporate venue rate + configured tax, and the current configured advance. It requires a configured venue capacity/rate and approved tax.
 - `PATCH /api/corporate/bookings/:id/verify-payment` — CS verifies an attached advance proof.
-- `PATCH /api/corporate/bookings/:id/confirm` — requires verified payment and a saved agreement URL, rechecks and reserves the shared venue/date, sends the WhatsApp confirmation, logs it to chat history, and attempts to schedule the pre-event reminder.
+- `PATCH /api/corporate/bookings/:id/confirm` — requires verified payment when the configured advance is greater than 0 and always requires a saved agreement URL; it rechecks and reserves the shared venue/date, sends the WhatsApp confirmation, logs it to chat history, and attempts to schedule the pre-event reminder.
 - `PATCH /api/corporate/bookings/:id/ai-replies/:replyId` — mark a saved AI reply reviewed.
 - `GET /api/corporate/venues`, `PUT /api/corporate/venues/:hallId`, `PUT /api/corporate/availability` — authenticated CRM venue management and per-date status editing.
 

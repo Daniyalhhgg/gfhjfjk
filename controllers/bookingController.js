@@ -13,6 +13,15 @@ const { getRoomAvailability, dateObject: roomDateObject } = require("../services
 const { scheduleJob, cancelJob } = require("../services/reminderQueue");
 const { parseReminderDateTime } = require("../utils/dateParser");
 const { publishDashboardNotification } = require("../services/dashboardNotificationService");
+const { getSupportSettings, isSupportTypeAvailable } = require("../services/supportSettings");
+const { buildCustomerCancellationMessage } = require("../services/bookingCancellation");
+const { sendWhatsAppText: sendWhatsAppTextService } = require("../services/whatsappText");
+const {
+  getBookingPaymentPolicy,
+  getBookingPaymentPolicyForCategory,
+  calculateAdvanceAmount,
+  setPaymentDeadline,
+} = require("../services/bookingPaymentPolicy");
 
 const DEFAULT_PAYMENT_BANK_NAME = "Meezan Bank";
 
@@ -65,11 +74,32 @@ const unconfiguredPayment = (booking) => ({
   accountNumber: "",
   iban: "",
   advanceAmount: booking && Number.isFinite(Number(booking.advanceAmount)) ? Number(booking.advanceAmount) : null,
+  advancePercent: booking && Number.isFinite(Number(booking.advancePercent)) ? Number(booking.advancePercent) : 20,
   message: "Payment account is not configured.",
 });
 
 const paymentInstructions = (booking) => {
   try {
+    const advanceAmount = booking && Number.isFinite(Number(booking.advanceAmount))
+      ? Number(booking.advanceAmount)
+      : null;
+    const advancePercent = booking && Number.isFinite(Number(booking.advancePercent))
+      ? Number(booking.advancePercent)
+      : 20;
+    if (advancePercent === 0) {
+      return {
+        configured: true,
+        required: false,
+        bankName: "",
+        accountTitle: "",
+        accountNumber: "",
+        iban: "",
+        advanceAmount: 0,
+        advancePercent: 0,
+        message: "No advance payment is required. The booking remains pending until staff confirms it.",
+      };
+    }
+
     const accountTitle = readEnv("PAYMENT_ACCOUNT_TITLE");
     const accountNumber = readEnv("PAYMENT_ACCOUNT_NUMBER");
     const iban = readEnv("PAYMENT_IBAN");
@@ -80,18 +110,15 @@ const paymentInstructions = (booking) => {
     const configured = Boolean(titleOk && (numberOk || ibanOk));
     logPaymentEnvStatus(booking?._id ? `booking ${booking._id}` : "call");
 
-    const advanceAmount = booking && Number.isFinite(Number(booking.advanceAmount))
-      ? Number(booking.advanceAmount)
-      : null;
     const lines = [
       bankName ? `Bank: ${bankName}` : "",
       titleOk ? `Account title: ${accountTitle}` : "",
       numberOk ? `Account number: ${accountNumber}` : "",
       ibanOk ? `IBAN: ${iban}` : "",
-      advanceAmount != null ? `Advance (20%): ${moneyPk(advanceAmount)}` : "",
+      advanceAmount != null ? `Advance (${advancePercent}%): ${moneyPk(advanceAmount)}` : "",
     ].filter(Boolean);
     const message = configured
-      ? `Please pay the 20% advance using these company account details:\n${lines.join("\n")}\nAfter payment, send the screenshot on this WhatsApp chat.`
+      ? `Please pay the ${advancePercent}% advance using these company account details:\n${lines.join("\n")}\nAfter payment, send the screenshot on this WhatsApp chat.`
       : "Payment account is not configured.";
 
     return {
@@ -101,6 +128,8 @@ const paymentInstructions = (booking) => {
       accountNumber: numberOk ? accountNumber : "",
       iban: ibanOk ? iban : "",
       advanceAmount,
+      advancePercent,
+      required: true,
       message,
     };
   } catch (error) {
@@ -178,17 +207,24 @@ const bookingDetailLines = (booking) => [
 ].filter(Boolean);
 const bookingConfirmationText = (booking) => {
   const language = booking.customerLanguage || "en";
-  const intro = language === "ur"
-    ? `محترم/محترمہ ${booking.customerName},\n\nآپ کی ادائیگی موصول ہو گئی ہے اور تصدیق ہو گئی ہے۔ آپ کی بکنگ کنفرم ہے۔`
-    : language === "roman"
-      ? `Dear ${booking.customerName},\n\nAapki payment receive ho gayi hai aur verify ho gayi hai. Aapki booking confirm hai.`
-      : `Dear ${booking.customerName},\n\nYour payment has been received and verified. Your booking is confirmed.`;
+  const noAdvance = Number(booking.advancePercent ?? 20) === 0;
+  const intro = noAdvance
+    ? language === "ur"
+      ? `محترم/محترمہ ${booking.customerName}،\n\nآپ کی بکنگ عملے کی تصدیق کے بعد کنفرم ہے؛ اس بکنگ کے لیے ایڈوانس درکار نہیں تھا۔`
+      : language === "roman"
+        ? `Dear ${booking.customerName},\n\nStaff review ke baad aapki booking confirm hai; is booking ke liye advance required nahi tha.`
+        : `Dear ${booking.customerName},\n\nYour booking is confirmed after staff review; no advance payment was required.`
+    : language === "ur"
+      ? `محترم/محترمہ ${booking.customerName}،\n\nآپ کی ادائیگی موصول ہو گئی ہے اور تصدیق ہو گئی ہے۔ آپ کی بکنگ کنفرم ہے۔`
+      : language === "roman"
+        ? `Dear ${booking.customerName},\n\nAapki payment receive ho gayi hai aur verify ho gayi hai. Aapki booking confirm hai.`
+        : `Dear ${booking.customerName},\n\nYour payment has been received and verified. Your booking is confirmed.`;
   return [
     intro,
     "",
     ...bookingDetailLines(booking),
     `Total bill: ${moneyPk(booking.totalAmount)}`,
-    `Advance received: ${moneyPk(booking.advanceAmount)}`,
+    noAdvance ? "Advance required: Rs 0" : `Advance received: ${moneyPk(booking.advanceAmount)}`,
     "",
     language === "ur" ? "Hotel d'GATES کا شکریہ۔" : language === "roman" ? "Hotel d'GATES ka shukriya." : "Thank you for choosing Hotel d'GATES.",
   ].join("\n");
@@ -207,6 +243,16 @@ const proofReceivedText = (language) => {
   if (language === "ur") return "آپ کی ادائیگی کا ثبوت موصول ہو گیا ہے۔ ہماری ٹیم تصدیق کر رہی ہے، براہِ کرم تھوڑا انتظار کریں۔ تصدیق ہوتے ہی آپ کو کنفرمیشن مل جائے گی۔";
   if (language === "roman") return "Aapka payment proof mil gaya hai. Hamari team verify kar rahi hai, please thora wait karein. Verify hote hi aapko confirmation mil jayegi.";
   return "Your payment proof has been received. Our team is verifying it, please wait a moment. You will get your confirmation as soon as it is verified.";
+};
+const proofSavedForSupportHoursText = (language) => {
+  if (language === "ur") return "آپ کی ادائیگی کا ثبوت محفوظ ہے۔ ٹیم مقررہ سپورٹ اوقات میں اس کا جائزہ لے گی۔";
+  if (language === "roman") return "Aapka payment proof save ho gaya hai. Team apne scheduled support hours mein isay review karegi.";
+  return "Your payment proof is saved. The team will review it during its scheduled support hours.";
+};
+const updateSavedForSupportHoursText = (language) => {
+  if (language === "ur") return "آپ کی تفصیلات محفوظ ہیں۔ ٹیم مقررہ سپورٹ اوقات میں ان کا جائزہ لے گی۔";
+  if (language === "roman") return "Aapki details save ho gayi hain. Team scheduled support hours mein inka review karegi.";
+  return "Your details are saved. The team will review them during its scheduled support hours.";
 };
 const proofConfirmQuestion = (language) => {
   if (language === "ur") return "کیا یہ ادائیگی کا ثبوت کنفرم ہے؟ براہ کرم ہاں یا نہیں لکھیں۔";
@@ -228,12 +274,26 @@ async function sendWhatsAppText(to, body) {
     { headers: { Authorization: `Bearer ${process.env.WHATSAPP_ACCESS_TOKEN}`, "Content-Type": "application/json" } }
   );
 }
-async function notifyCsTeam({ caption, mediaUrl, mediaType = "image", mediaFilename = "" }) {
+async function notifyCsTeam({
+  caption,
+  mediaUrl,
+  mediaType = "image",
+  mediaFilename = "",
+  restaurantId = "restaurant-1",
+  scheduleType = "human_request",
+  alertType = scheduleType,
+}) {
   try {
-    const csNumber = cleanEnvValue(process.env.WHATSAPP_CS_TEAM_NUMBER);
+    const settings = await getSupportSettings(restaurantId);
+    const recipientType = ["payment_alert", "human_request", "booking_issue"].includes(alertType)
+      ? alertType
+      : "human_request";
+    const effectiveScheduleType = alertType === "booking_issue" ? "booking_alert" : scheduleType;
+    if (!isSupportTypeAvailable(settings, effectiveScheduleType)) return null;
+    const csNumber = cleanEnvValue(settings.whatsappAlertNumbers?.[recipientType] || process.env.WHATSAPP_CS_TEAM_NUMBER);
     const phoneNumberId = cleanEnvValue(process.env.WHATSAPP_PHONE_NUMBER_ID);
     const accessToken = cleanEnvValue(process.env.WHATSAPP_ACCESS_TOKEN || process.env.WHATSAPP_TOKEN);
-    if (!csNumber) return "Configure WHATSAPP_CS_TEAM_NUMBER to notify CS on WhatsApp.";
+    if (!csNumber) return `Configure the ${recipientType} WhatsApp recipient in CRM Support > WhatsApp Alert Numbers.`;
     if (!phoneNumberId || !accessToken) {
       console.error("WhatsApp CS notify skipped: WHATSAPP_PHONE_NUMBER_ID or WHATSAPP_ACCESS_TOKEN is missing after trim.");
       return "WhatsApp Cloud API credentials are not configured.";
@@ -313,7 +373,7 @@ const csDeclineCaption = (booking, reason) => [
   ...bookingDetailLines(booking).filter((line) => !line.startsWith("Package:")),
   `Total: ${moneyPk(booking.totalAmount)}`,
   `Advance asked: ${moneyPk(booking.advanceAmount)}`,
-  `Reason: ${reason || "Customer did not agree to pay the 20% advance."}`,
+  `Reason: ${reason || `Customer did not agree to pay the ${booking.advancePercent || 20}% advance.`}`,
   `Booking ID: ${booking._id}`,
   "",
   "Details are already saved. Open Customer Details in CRM to handle this customer.",
@@ -331,7 +391,7 @@ async function confirmAndNotify(req, booking) {
   if (!["pending", "pending_payment_verification", "confirmed"].includes(booking.status)) {
     return { error: "Only pending bookings, or confirmed bookings with a failed WhatsApp message, can be confirmed." };
   }
-  if (!["advance_received", "paid"].includes(booking.paymentStatus)) {
+  if (Number(booking.advancePercent ?? 20) > 0 && !["advance_received", "paid"].includes(booking.paymentStatus)) {
     return { error: "Verify the customer's advance payment before confirming this booking." };
   }
 
@@ -388,6 +448,12 @@ const availabilityCategoryForPackage = (packageName, categoryName = "") => {
 const isRoomBooking = (booking) =>
   availabilityCategoryForPackage(booking.package, booking.bookingCategory) === "Rooms" ||
   Boolean(booking.roomTypeId || booking.checkOutDate);
+const paymentPolicyCategoryFor = (booking) => {
+  if (isRoomBooking(booking)) return "Rooms";
+  const category = String(booking.bookingCategory || "").trim();
+  if (category === "Wedding") return "Wedding Package";
+  return category || menuCategoryForPackage(booking.package) || "";
+};
 
 async function checkBookingCapacity(data, restaurantId) {
   const category = availabilityCategoryForPackage(data.package, data.bookingCategory);
@@ -569,14 +635,21 @@ exports.createBooking = async (req, res) => {
       return res.status(409).json({ success: false, message: availability.reason || `No ${availabilityCategoryForPackage(req.body.package, req.body.bookingCategory)} availability for this time.`, availability });
     }
     const bookingData = { ...req.body };
+    const policy = await getBookingPaymentPolicyForCategory(restaurantId, paymentPolicyCategoryFor(bookingData));
+    bookingData.paymentDeadlineAt = null;
+    bookingData.paymentDeadlineAction = "no_action";
+    bookingData.paymentDeadlineHandledAt = null;
     if (isRoomBooking(bookingData) && availability) {
       const checkIn = roomDateObject(String(bookingData.bookingDate).slice(0, 10));
       const checkOut = roomDateObject(String(bookingData.checkOutDate).slice(0, 10));
       bookingData.roomType = availability.roomType.name;
       bookingData.totalAmount = Math.round(availability.roomType.baseRate * Number(bookingData.numberOfRooms || 1) * ((checkOut - checkIn) / 86400000) * 100) / 100;
-      bookingData.advanceAmount = Math.round(bookingData.totalAmount * 0.2 * 100) / 100;
       bookingData.bookingTime = bookingData.bookingTime || "15:00";
     }
+    bookingData.advancePercent = policy.advancePercent;
+    bookingData.advanceAmount = calculateAdvanceAmount(bookingData.totalAmount, policy.advancePercent);
+    if (policy.advancePercent === 0) bookingData.paymentStatus = "not_required";
+    if (bookingData.status !== "confirmed" && bookingData.advancePercent > 0) setPaymentDeadline(bookingData, policy);
     const booking = await Booking.create({
       ...bookingData,
       restaurantId,
@@ -689,6 +762,14 @@ exports.createBookingFromWhatsApp = async (req, res) => {
           value: String(detail?.value || "").trim(),
         })).filter((detail) => detail.label && detail.value)
       : [];
+    const bookingCategory = String(
+      parsed.bookingCategory === "Wedding" ? "Wedding Package"
+        : /d['’]fusion|fusion.*restaurant|revolving.*restaurant.*a\s*la\s*carte|revolving.*a\s*la\s*carte/i.test(String(parsed.bookingCategory || "")) ? "D'Fusion Revolving Restaurant: A La Carte Menu"
+          : /^a\s*la\s*carte/i.test(String(parsed.bookingCategory || "")) ? "À la carte / Restaurant Reservation"
+            : parsed.bookingCategory || menuCategoryForPackage(parsed.package) || ""
+    ).trim();
+    const policyCategory = roomBooking ? "Rooms" : (bookingCategory === "Wedding" ? "Wedding Package" : bookingCategory);
+    const policy = await getBookingPaymentPolicyForCategory(assignedRestaurantId, policyCategory);
     const payload = {
       customerId: fromNumber,
       customerName: parsed.customerName || "WhatsApp Customer",
@@ -697,12 +778,7 @@ exports.createBookingFromWhatsApp = async (req, res) => {
       handledBy: "whatsapp-bot",
       customerLanguage: parsed.customerLanguage || detectLanguage(parsed.notes || parsed.specialRequests || ""),
       package: parsed.package || "",
-      bookingCategory: String(
-        parsed.bookingCategory === "Wedding" ? "Wedding Package"
-          : /d['’]fusion|fusion.*restaurant|revolving.*restaurant.*a\s*la\s*carte|revolving.*a\s*la\s*carte/i.test(String(parsed.bookingCategory || "")) ? "D'Fusion Revolving Restaurant: A La Carte Menu"
-            : /^a\s*la\s*carte/i.test(String(parsed.bookingCategory || "")) ? "À la carte / Restaurant Reservation"
-              : parsed.bookingCategory || menuCategoryForPackage(parsed.package) || ""
-      ).trim(),
+      bookingCategory,
       selectedItems,
       bookingDetails,
       numberOfPersons: parsed.numberOfPersons || 1,
@@ -717,10 +793,11 @@ exports.createBookingFromWhatsApp = async (req, res) => {
       status: "pending",
       bookingSource: "whatsapp-bot",
       totalAmount,
-      advanceAmount: Math.round(totalAmount * 0.2 * 100) / 100,
+      advanceAmount: calculateAdvanceAmount(totalAmount, policy.advancePercent),
+      advancePercent: policy.advancePercent,
       paymentMethod: parsed.paymentMethod || "",
       paymentScreenshotUrl: "",
-      paymentStatus: "unpaid",
+      paymentStatus: policy.advancePercent === 0 ? "not_required" : "unpaid",
       offerApplied: parsed.offerApplied || "",
     };
     const requestedDate = typeof payload.bookingDate === "string" && /^\d{4}-\d{2}-\d{2}/.test(payload.bookingDate)
@@ -770,8 +847,9 @@ exports.createBookingFromWhatsApp = async (req, res) => {
       payload.roomType = availability.roomType.name;
       payload.totalAmount = Math.round(availability.roomType.baseRate * payload.numberOfRooms * nights * 100) / 100;
       if (payload.totalAmount <= 0) return res.status(400).json({ success: false, message: "Configure a positive room rate before taking a room booking." });
-      payload.advanceAmount = Math.round(payload.totalAmount * 0.2 * 100) / 100;
+      payload.advanceAmount = calculateAdvanceAmount(payload.totalAmount, policy.advancePercent);
     }
+    if (payload.advancePercent > 0) setPaymentDeadline(payload, policy);
     const booking = await Booking.create({
       ...payload,
       notes: parsed.notes || "",
@@ -821,8 +899,12 @@ exports.updateBookingStatus = async (req, res) => {
 
     const booking = await Booking.findOne({ _id: id, restaurantId: req.admin.restaurantId });
     if (!booking) return res.status(404).json({ success: false, message: "Booking not found" });
-    if (status === "cancelled" && booking.paymentScreenshotUrl && !String(remarks).trim()) {
-      return res.status(400).json({ success: false, message: "Add a reason when rejecting a submitted payment proof." });
+    const cancellationReason = String(remarks || "").trim();
+    if (status === "cancelled" && !cancellationReason) {
+      return res.status(400).json({ success: false, message: "Enter a cancellation reason to send to the customer." });
+    }
+    if (status === "cancelled" && cancellationReason.length > 500) {
+      return res.status(400).json({ success: false, message: "Cancellation reason must be 500 characters or fewer." });
     }
     if (status === "confirmed") {
       const result = await confirmAndNotify(req, booking);
@@ -834,7 +916,15 @@ exports.updateBookingStatus = async (req, res) => {
     if (String(remarks || "").trim()) booking.csRemarks = String(remarks).trim().slice(0, 1000);
     if (status === "cancelled" && ["verifying", "proof_received", "unpaid", "payment_declined"].includes(booking.paymentStatus)) {
       booking.paymentStatus = "rejected";
-      booking.paymentDeclineReason = String(remarks || "Payment proof rejected by CS.").trim().slice(0, 500);
+      booking.paymentDeclineReason = cancellationReason.slice(0, 500);
+    }
+    let cancellationWarning = "";
+    let cancellationMessage = "";
+    const shouldNotifyCancellation = status === "cancelled" &&
+      (previousStatus !== "cancelled" || booking.cancellationMessageStatus === "failed");
+    if (status === "cancelled" && previousStatus !== "cancelled") {
+      booking.cancellationMessageStatus = "not_sent";
+      booking.cancellationMessageError = "";
     }
     await booking.save();
 
@@ -850,6 +940,48 @@ exports.updateBookingStatus = async (req, res) => {
       if (previousStatus !== "cancelled") {
         void notifyDashboard(req, booking, "booking_cancelled", "Booking cancelled", `${booking.customerName || "Customer"} · ${booking.package || "Booking"}`);
       }
+      if (shouldNotifyCancellation) {
+        cancellationMessage = buildCustomerCancellationMessage(booking.customerLanguage, cancellationReason);
+        try {
+          await sendWhatsAppText(booking.customerPhone, cancellationMessage);
+          booking.cancellationMessageStatus = "sent";
+          booking.cancellationMessageError = "";
+        } catch (error) {
+          cancellationWarning = error.response?.data?.error?.message || error.message || "WhatsApp cancellation message could not be sent.";
+          booking.cancellationMessageStatus = "failed";
+          booking.cancellationMessageError = cancellationWarning.slice(0, 500);
+          console.error(`Booking ${booking._id} was cancelled, but the customer WhatsApp message failed:`, cancellationWarning);
+        }
+        await booking.save();
+        try {
+          const cancellationChat = await Chat.create({
+            restaurantId: booking.restaurantId,
+            customerPhone: booking.customerPhone,
+            customerName: booking.customerName,
+            botReply: cancellationMessage,
+            sender: "admin",
+            direction: "admin_to_customer",
+            source: "booking_cancellation",
+            status: cancellationWarning ? "failed" : "sent",
+            isBookingRelated: true,
+            bookingId: booking._id,
+            metadata: cancellationWarning ? { error: cancellationWarning } : {},
+          });
+          req.app.get("io")?.to("chat-admins").emit("whatsapp-new-message", {
+            phone: booking.customerPhone.replace(/\D/g, ""),
+            customerName: booking.customerName,
+            botReply: cancellationMessage,
+            sender: "admin",
+            isBot: false,
+            timestamp: cancellationChat.createdAt,
+            chatId: cancellationChat._id,
+          });
+        } catch (error) {
+          const historyError = `Cancellation message history could not be saved: ${error.message}`;
+          cancellationWarning = [cancellationWarning, historyError].filter(Boolean).join(" ");
+          console.error(`Booking ${booking._id} cancellation message history save failed:`, error.message);
+        }
+      }
     }
     if (booking) emitBooking(req, "booking_updated", booking);
 
@@ -858,6 +990,9 @@ exports.updateBookingStatus = async (req, res) => {
     res.json({
       success: true,
       data: booking,
+      ...(cancellationWarning ? {
+        warning: `Booking was cancelled, but the customer WhatsApp message could not be sent: ${cancellationWarning}. Open Chat History to send it manually.`,
+      } : {}),
     });
   } catch (error) {
     console.error("❌ Update Booking Status Error:", error);
@@ -933,7 +1068,14 @@ exports.updateBooking = async (req, res) => {
       const totalAmount = Math.round(availability.roomType.baseRate * Number(availabilityData.numberOfRooms || 1) * ((checkOut - checkIn) / 86400000) * 100) / 100;
       updateData.roomType = availability.roomType.name;
       updateData.totalAmount = totalAmount;
-      updateData.advanceAmount = Math.round(totalAmount * 0.2 * 100) / 100;
+    }
+    if (updateData.totalAmount !== undefined) {
+      const advancePercent = Number(existingBooking.advancePercent ?? 20);
+      updateData.advancePercent = advancePercent;
+      updateData.advanceAmount = calculateAdvanceAmount(updateData.totalAmount, advancePercent);
+      if (advancePercent === 0 && ["unpaid", "payment_declined"].includes(existingBooking.paymentStatus)) {
+        updateData.paymentStatus = "not_required";
+      }
     }
     const booking = await Booking.findOneAndUpdate(
       { _id: id, restaurantId: req.admin.restaurantId },
@@ -968,6 +1110,7 @@ exports.capturePaymentScreenshot = async (req, res) => {
     }
     const { url, mediaId, customerPhone, caption = "", restaurantId = "restaurant-1" } = req.body;
     const mediaType = String(req.body.mediaType || "image").toLowerCase();
+    const saveOnly = req.body.saveOnly === true;
     if (!["image", "video", "audio", "document"].includes(mediaType)) {
       return res.status(400).json({ success: false, message: "Unsupported WhatsApp media type" });
     }
@@ -980,10 +1123,10 @@ exports.capturePaymentScreenshot = async (req, res) => {
     let booking;
     let weddingBooking;
     let corporateBooking;
-    if (paymentProofType && req.params.id) {
+    if (paymentProofType && !saveOnly && req.params.id) {
       if (!mongoose.isValidObjectId(req.params.id)) return res.status(400).json({ success: false, message: "Invalid booking id" });
       booking = await Booking.findOne({ _id: req.params.id, restaurantId });
-    } else if (paymentProofType) {
+    } else if (paymentProofType && !saveOnly) {
       const [candidates, weddingCandidates, corporateCandidates] = await Promise.all([
         Booking.find({ restaurantId, status: { $in: ["pending", "pending_payment_verification"] } }).sort({ createdAt: -1 }).limit(100),
         WeddingBooking.find({ restaurantId, bookingType: "wedding", paymentVerified: false, stage: { $in: ["proposal", "advance_payment", "agreement", "cs_verification"] } }).sort({ createdAt: -1 }).limit(100),
@@ -1126,8 +1269,17 @@ exports.capturePaymentScreenshot = async (req, res) => {
     });
 
     const io = req.app.get("io");
+    let sendPaymentAlert = false;
+    if (attachedBooking) {
+      try {
+        const settings = await getSupportSettings(restaurantId);
+        sendPaymentAlert = isSupportTypeAvailable(settings, "payment_alert");
+      } catch (error) {
+        console.error("Could not check payment-alert schedule:", error.message);
+      }
+    }
     if (io) {
-      if (attachedBooking) io.to("chat-admins").emit("payment_screenshot_received", { restaurantId, booking: attachedBooking, bookingType: corporateBooking ? "corporate" : weddingBooking ? "wedding" : "standard" });
+      if (attachedBooking && sendPaymentAlert) io.to("chat-admins").emit("payment_screenshot_received", { restaurantId, booking: attachedBooking, bookingType: corporateBooking ? "corporate" : weddingBooking ? "wedding" : "standard" });
       io.to("chat-admins").emit("whatsapp-new-message", {
         phone: attachedBooking?.customerPhone || phone,
         customerName: attachedBooking?.customerName || "WhatsApp Customer",
@@ -1149,21 +1301,28 @@ exports.capturePaymentScreenshot = async (req, res) => {
     }
     const language = detectLanguage(caption, attachedBooking?.customerLanguage || "en");
     let csWarning = "";
+    let csNotificationSkipped = false;
     if (attachedBooking) {
       try {
-        csWarning = await notifyCsTeam({
+        const notifyResult = await notifyCsTeam({
           caption: booking ? csPaymentCaption(booking) : eventPaymentCaption(attachedBooking, corporateBooking ? "corporate" : "wedding"),
           mediaUrl: screenshotUrl,
           mediaType: mediaType === "document" ? "document" : "image",
           mediaFilename,
+          restaurantId,
+          scheduleType: "payment_alert",
         });
+        csNotificationSkipped = notifyResult === null;
+        csWarning = notifyResult || "";
       } catch (error) {
         csWarning = `Proof was saved, but the CS WhatsApp notification failed: ${error.response?.data?.error?.message || error.message}`;
         console.error(csWarning);
       }
     }
     const customerReply = attachedBooking
-      ? (csWarning && /failed/i.test(csWarning) ? customerCsNotifyFailureText(language) : proofReceivedText(language))
+      ? (csWarning && /failed/i.test(csWarning)
+        ? customerCsNotifyFailureText(language)
+        : csNotificationSkipped ? proofSavedForSupportHoursText(language) : proofReceivedText(language))
       : language === "ur"
         ? "آپ کی فائل موصول ہو گئی ہے اور ٹیم کے لیے محفوظ کر لی گئی ہے۔"
         : language === "roman"
@@ -1255,6 +1414,105 @@ exports.checkInBooking = async (req, res) => {
   }
 };
 
+exports.sendTodayBookingFollowUp = async (req, res) => {
+  try {
+    if (!mongoose.isValidObjectId(req.params.id)) {
+      return res.status(400).json({ success: false, message: "Invalid booking id." });
+    }
+    const { message, sourceType = "booking" } = req.body;
+    const cleanMessage = String(message || "").trim();
+    if (!cleanMessage) return res.status(400).json({ success: false, message: "Write a message before sending." });
+    if (cleanMessage.length > 4096) return res.status(400).json({ success: false, message: "Message must be 4096 characters or fewer." });
+    if (!["booking", "wedding", "corporate"].includes(sourceType)) {
+      return res.status(400).json({ success: false, message: "Invalid booking type." });
+    }
+
+    const timezone = process.env.SLOT_TIMEZONE || "Asia/Karachi";
+    const dateKey = (value) => {
+      if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}/.test(value)) return value.slice(0, 10);
+      if (!value) return "";
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) return "";
+      const parts = new Intl.DateTimeFormat("en-CA", {
+        timeZone: timezone, year: "numeric", month: "2-digit", day: "2-digit",
+      }).formatToParts(date);
+      return `${parts.find((part) => part.type === "year")?.value}-${parts.find((part) => part.type === "month")?.value}-${parts.find((part) => part.type === "day")?.value}`;
+    };
+    const todayParts = new Intl.DateTimeFormat("en-CA", {
+      timeZone: timezone, year: "numeric", month: "2-digit", day: "2-digit",
+    }).formatToParts(new Date());
+    const today = `${todayParts.find((part) => part.type === "year")?.value}-${todayParts.find((part) => part.type === "month")?.value}-${todayParts.find((part) => part.type === "day")?.value}`;
+
+    let booking;
+    let eventDate;
+    if (sourceType === "booking") {
+      booking = await Booking.findOne({
+        _id: req.params.id, restaurantId: req.admin.restaurantId, status: "confirmed",
+      });
+      eventDate = booking?.bookingDate;
+    } else {
+      booking = await WeddingBooking.findOne({
+        _id: req.params.id,
+        restaurantId: req.admin.restaurantId,
+        bookingType: sourceType,
+        stage: "confirmed",
+      });
+      eventDate = sourceType === "wedding"
+        ? booking?.acceptedAlternateDate || booking?.answers?.weddingDate
+        : booking?.acceptedAlternateDate || booking?.answers?.eventDate;
+    }
+
+    if (!booking) return res.status(404).json({ success: false, message: "Confirmed booking not found." });
+    if (dateKey(eventDate) !== today) {
+      return res.status(409).json({ success: false, message: "Messages can only be sent from this page for confirmed bookings scheduled today." });
+    }
+
+    try {
+      await sendWhatsAppTextService(booking.customerPhone, cleanMessage);
+    } catch (error) {
+      const sendError = error.response?.data?.error?.message || error.message;
+      console.error(`Today booking follow-up WhatsApp send failed for ${booking._id}:`, sendError);
+      return res.status(502).json({ success: false, message: `WhatsApp message could not be sent: ${sendError}` });
+    }
+
+    let warning = "";
+    try {
+      const chat = await Chat.create({
+        restaurantId: booking.restaurantId,
+        customerPhone: booking.customerPhone,
+        customerName: booking.customerName || "WhatsApp Customer",
+        botReply: cleanMessage,
+        sender: "admin",
+        direction: "admin_to_customer",
+        source: "today_booking_follow_up",
+        status: "sent",
+        isBookingRelated: true,
+        ...(sourceType === "booking" ? { bookingId: booking._id } : {}),
+        metadata: sourceType === "booking"
+          ? { bookingId: String(booking._id), bookingType: sourceType }
+          : { [`${sourceType}BookingId`]: String(booking._id), bookingType: sourceType },
+      });
+      req.app.get("io")?.to("chat-admins").emit("whatsapp-new-message", {
+        phone: booking.customerPhone.replace(/\D/g, ""),
+        customerName: booking.customerName,
+        botReply: cleanMessage,
+        sender: "admin",
+        isBot: false,
+        timestamp: chat.createdAt,
+        chatId: chat._id,
+      });
+    } catch (error) {
+      warning = `Message was sent, but it could not be saved to Chat History: ${error.message}`;
+      console.error(`Today booking follow-up history save failed for ${booking._id}:`, error.message);
+    }
+
+    return res.json({ success: true, message: "WhatsApp message sent.", ...(warning ? { warning } : {}) });
+  } catch (error) {
+    console.error("sendTodayBookingFollowUp error:", error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 const findLatestForPhone = async (restaurantId, phone, extra = {}) => {
   const candidates = await Booking.find({ restaurantId, ...extra }).sort({ createdAt: -1 }).limit(150);
   return candidates.find((candidate) => matchPhone(candidate.customerPhone, phone)) || null;
@@ -1304,17 +1562,24 @@ exports.confirmPaymentProof = async (req, res) => {
     else if (match.type === "wedding") req.app.get("io")?.to("chat-admins").emit("wedding_booking_updated", { bookingId: booking._id, restaurantId, booking });
     else req.app.get("io")?.to("chat-admins").emit("corporate_booking_updated", { bookingId: booking._id, restaurantId, booking });
     let warning = "";
+    let notificationSkipped = false;
     try {
-      warning = await notifyCsTeam({
+      const notifyResult = await notifyCsTeam({
         caption: match.type === "standard" ? csPaymentCaption(booking) : eventPaymentCaption(booking, match.type),
         mediaUrl: match.type === "standard" ? booking.paymentScreenshotUrl : booking.paymentProofUrl,
         mediaType: "image",
+        restaurantId,
+        scheduleType: "payment_alert",
       });
+      notificationSkipped = notifyResult === null;
+      warning = notifyResult || "";
     } catch (error) {
       warning = `Proof was saved, but the CS WhatsApp notification failed: ${error.response?.data?.error?.message || error.message}`;
       console.error(warning);
     }
-    const customerReply = warning ? customerCsNotifyFailureText(language) : customerWaitText(language);
+    const customerReply = warning
+      ? customerCsNotifyFailureText(language)
+      : notificationSkipped ? proofSavedForSupportHoursText(language) : customerWaitText(language);
     res.json({ success: true, data: { active: true, booking, replyText: customerReply, bookingType: match.type }, ...(warning ? { warning } : {}) });
   } catch (error) {
     console.error("confirmPaymentProof error:", error);
@@ -1327,9 +1592,23 @@ exports.declineAdvancePayment = async (req, res) => {
     if (!requireN8nKey(req, res)) return;
     const restaurantId = String(req.body.restaurantId || "restaurant-1").trim();
     const phone = digitsOnly(req.body.customerPhone || req.body.fromNumber);
-    const reason = String(req.body.reason || req.body.message || "Customer did not agree to pay the 20% advance.").trim().slice(0, 500);
+    const policy = await getBookingPaymentPolicy(restaurantId);
     const language = detectLanguage(req.body.message, req.body.customerLanguage || "en");
     if (phone.length < 7) return res.status(400).json({ success: false, message: "A valid customerPhone is required" });
+    const pendingBooking = await findLatestForPhone(restaurantId, phone, {
+      status: "pending",
+      paymentStatus: { $in: ["unpaid", "payment_declined"] },
+    });
+    const advancePercent = Number(pendingBooking?.advancePercent ?? policy.advancePercent);
+    const reason = String(req.body.reason || req.body.message || `Customer did not agree to pay the ${advancePercent}% advance.`).trim().slice(0, 500);
+    if (advancePercent === 0) {
+      const replyText = language === "ur"
+        ? "اس بکنگ کے لیے ایڈوانس درکار نہیں؛ اسٹاف بکنگ کی تصدیق کرے گا۔"
+        : language === "roman"
+          ? "Is booking ke liye advance required nahi; staff booking confirm karega."
+          : "No advance is required for this booking; staff will confirm it.";
+      return res.json({ success: true, data: { active: false, replyText } });
+    }
     const message = String(req.body.message || "").trim();
     const explicitPaymentDecline = /\b(?:can't|cannot|cant|won't|will not|unable to|not able to)\s+(?:pay|make payment|send (?:the )?payment|afford)\b|\b(?:payment|advance)\s+(?:is\s+)?(?:not|no)\b|\b(?:payment|advance)\s+nahi\b|payment nahi karna|advance nahi karna/i.test(message)
       || /ادائیگی نہیں|ایڈوانس نہیں|پیسے نہیں دے سکتا|پیسے نہیں دے سکتی/.test(message);
@@ -1348,10 +1627,7 @@ exports.declineAdvancePayment = async (req, res) => {
       && /\b(20\s*%|advance|payment|pay|account|transfer|deposit)\b|ادائیگی|ایڈوانس|پیسے|رقم/i.test(lastBotMessage.botReply);
     const declined = explicitPaymentDecline || (generalRefusal && recentPaymentRequest);
     if (!declined) return res.json({ success: true, data: { active: false, replyText: "" } });
-    const booking = await findLatestForPhone(restaurantId, phone, {
-      status: "pending",
-      paymentStatus: { $in: ["unpaid", "payment_declined"] },
-    });
+    const booking = pendingBooking;
     if (!booking) return res.json({ success: true, data: { active: false, replyText: "" } });
     booking.paymentStatus = "payment_declined";
     booking.paymentDeclineReason = reason;
@@ -1359,14 +1635,18 @@ exports.declineAdvancePayment = async (req, res) => {
     await booking.save();
     emitBooking(req, "booking_updated", booking);
     let warning = "";
+    let notificationSkipped = false;
     try {
-      warning = await notifyCsTeam({ caption: csDeclineCaption(booking, reason) });
+      const notifyResult = await notifyCsTeam({ caption: csDeclineCaption(booking, reason), restaurantId, scheduleType: "payment_alert" });
+      notificationSkipped = notifyResult === null;
+      warning = notifyResult || "";
     } catch (error) {
       warning = `Saved in CRM, but the CS WhatsApp notification failed: ${error.response?.data?.error?.message || error.message}`;
       console.error(warning);
     }
     const customerReply = warning
       ? customerCsNotifyFailureText(language)
+      : notificationSkipped ? updateSavedForSupportHoursText(language)
       : language === "ur"
         ? "سمجھ گیا۔ آپ کی تفصیلات محفوظ ہیں۔ ہماری ٹیم جلد آپ سے رابطہ کرے گی۔"
         : language === "roman"
@@ -1387,9 +1667,10 @@ exports.getCustomerBookingContext = async (req, res) => {
     if (phone.length < 7) return res.status(400).json({ success: false, message: "A valid phone is required" });
     const phoneTail = phone.slice(-7);
     const phonePattern = new RegExp(phoneTail.split("").join("[^0-9]*") + "$");
-    const [standard, events] = await Promise.all([
+    const [standard, events, bookingPaymentPolicy] = await Promise.all([
       Booking.find({ restaurantId, customerPhone: { $regex: phonePattern } }).sort({ createdAt: -1 }).limit(100).lean(),
       WeddingBooking.find({ restaurantId, customerPhone: { $regex: phonePattern } }).sort({ createdAt: -1 }).limit(100).lean(),
+      getBookingPaymentPolicy(restaurantId),
     ]);
     const bookings = standard.filter((item) => matchPhone(item.customerPhone, phone)).slice(0, 8).map((item) => ({
       type: "standard",
@@ -1410,6 +1691,8 @@ exports.getCustomerBookingContext = async (req, res) => {
       guests: item.numberOfPersons,
       totalAmount: item.totalAmount,
       advanceAmount: item.advanceAmount,
+      advancePercent: item.advancePercent,
+      paymentDeadlineAt: item.paymentDeadlineAt || null,
       paymentProofOnFile: Boolean(item.paymentScreenshotUrl),
       csRemarks: item.csRemarks || "",
       paymentDeclineReason: item.paymentDeclineReason || "",
@@ -1432,6 +1715,8 @@ exports.getCustomerBookingContext = async (req, res) => {
       guests: item.quotation?.guests || item.answers?.guests || null,
       totalAmount: item.quotation?.total || 0,
       advanceAmount: item.quotation?.advanceRequired || 0,
+      advancePercent: item.quotation?.advancePercent ?? item.advancePercent,
+      paymentDeadlineAt: item.paymentDeadlineAt || null,
       paymentProofOnFile: Boolean(item.paymentProofUrl),
       agreementRequired: true,
       agreementSaved: Boolean(item.agreementUrl),
@@ -1439,15 +1724,17 @@ exports.getCustomerBookingContext = async (req, res) => {
     }));
     const latest = [...bookings, ...eventBookings].sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0))[0];
     const hasPaymentDecline = bookings.some((item) => item.paymentStatus === "payment_declined" || item.paymentDeclineReason);
+    const currentPaymentInstructions = paymentInstructions({ advancePercent: bookingPaymentPolicy.advancePercent });
     res.json({
       success: true,
       data: {
         phone,
         bookings,
         eventBookings,
+        bookingPaymentPolicy,
         hasPaymentDecline,
         // Configured company payment details, so the bot can repeat them exactly when asked.
-        paymentInstructions: paymentInstructions().configured ? paymentInstructions() : null,
+        paymentInstructions: currentPaymentInstructions.configured ? currentPaymentInstructions : null,
         instruction: latest
           ? `This customer already has CRM records. Never say they have not booked, not paid, or must provide booking details again if a matching record shows otherwise. Latest: ${latest.category} · status ${latest.status} · payment ${latest.paymentStatus} · handled by ${latest.handledBy || "CRM team"}.`
           : "No saved CRM booking for this phone yet.",

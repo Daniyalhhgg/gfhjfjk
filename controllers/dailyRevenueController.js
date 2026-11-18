@@ -13,6 +13,20 @@ const shiftDate = (date, days) => {
   return shifted.toISOString().slice(0, 10);
 };
 
+exports.getRevenueHistory = async (req, res) => {
+  try {
+    const setting = await Setting.findOne({ restaurantId: req.admin.restaurantId })
+      .select("dailyRevenueEntries")
+      .lean();
+    const entries = [...(setting?.dailyRevenueEntries || [])]
+      .sort((left, right) => right.date.localeCompare(left.date));
+    res.json({ success: true, data: entries });
+  } catch (error) {
+    console.error("getRevenueHistory error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 exports.getYesterdayRevenue = async (req, res) => {
   try {
     const date = shiftDate(getPakistanDate(), -1);

@@ -1,13 +1,19 @@
 const express = require("express");
 const auth = require("../middleware/auth");
 const controller = require("../controllers/agentRequestController");
+const supportSettings = require("../controllers/supportSettingsController");
 
 const router = express.Router();
 
 // n8n (x-api-key): the bot hands a customer over to a person.
 router.post("/from-whatsapp", controller.createFromWhatsApp);
+router.post("/information-needed", controller.createInformationNeededAlert);
+router.post("/evaluate", supportSettings.evaluateHandoff);
 
 // CRM (admin login).
+router.get("/settings", auth, supportSettings.getSettings);
+router.put("/settings", auth, supportSettings.saveSettings);
+router.put("/settings/whatsapp-alert-numbers", auth, supportSettings.saveWhatsappAlertNumbers);
 router.get("/", auth, controller.list);
 router.get("/keywords", auth, controller.getKeywords);
 router.put("/keywords", auth, controller.setKeywords);

@@ -37,12 +37,16 @@ exports.uploadMiddleware = upload.single("file");
 exports.checkHumanMode = async (req, res) => {
   const phone = req.params.phone.replace(/[^0-9]/g, "");
   try {
-    const state = await HumanModeState.findOne({ phoneKey: phoneKey(phone) }).lean();
-    res.json({ success: true, humanMode: Boolean(state?.on), phone });
+    const key = phoneKey(phone);
+    const [state, takenRequest] = await Promise.all([
+      HumanModeState.findOne({ phoneKey: key }).lean(),
+      AgentRequest.exists({ phoneKey: key, status: "taken" }),
+    ]);
+    const humanMode = Boolean(state?.on || takenRequest);
+    res.json({ success: true, humanMode, supportMode: humanMode ? "human" : "bot", phone });
   } catch (error) {
-    // If the lookup fails, let the bot keep answering rather than leaving the customer in silence.
     console.error("checkHumanMode error:", error.message);
-    res.json({ success: true, humanMode: false, phone });
+    res.status(503).json({ success: false, message: "Could not verify the current support mode." });
   }
 };
 
@@ -51,6 +55,7 @@ exports.checkHumanMode = async (req, res) => {
 // ============================================================
 exports.toggleHumanMode = async (req, res) => {
   const phone = req.params.phone.replace(/[^0-9]/g, "");
+  if (phone.length < 7) return res.status(400).json({ success: false, message: "A valid phone is required." });
   const on = Boolean(req.body.humanMode);
   try {
     await HumanModeState.findOneAndUpdate(

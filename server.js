@@ -80,6 +80,11 @@ mongoose.connect(process.env.MONGODB_URI)
       console.error('❌ Pending reminder recovery failed:', err.message);
     }
     try {
+      require('./services/supportAutomationService').startSupportAutomation(io);
+    } catch (err) {
+      console.error('❌ Support automation startup failed:', err.message);
+    }
+    try {
       await require('./seeds/weddingSeed').seedWeddingData();
       await require('./seeds/buffetMenus').seedBuffetMenus();
       await require('./seeds/roomStaycation').seedRoomStaycationMenu();

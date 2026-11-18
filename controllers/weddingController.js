@@ -8,6 +8,8 @@ const Menu = require("../models/Menu");
 const Reminder = require("../models/Reminder");
 const { scheduleJob } = require("../services/reminderQueue");
 const { publishDashboardNotification } = require("../services/dashboardNotificationService");
+const { getBookingPaymentPolicyForCategory, calculateAdvanceAmount, setPaymentDeadline, deadlinePolicySnapshot } = require("../services/bookingPaymentPolicy");
+const { sendEventBookingCancellation } = require("../services/eventBookingCancellation");
 
 const RESTAURANT_ID = "restaurant-1";
 const QUESTIONS = [
@@ -447,6 +449,7 @@ async function createCustomerWeddingQuotation(booking, restaurantId, hall, selec
   const taxAmount = Math.round(subtotal * taxPercent) / 100;
   const total = Math.round((subtotal + taxAmount) * 100) / 100;
   if (!Number.isFinite(total) || total <= 0) return "The configured wedding quotation did not produce a valid total.";
+  const paymentPolicy = await getBookingPaymentPolicyForCategory(restaurantId, "Wedding Package");
   booking.hallId = hall.hallId;
   booking.hallName = hall.hallName;
   booking.acceptedAlternateDate = hall.date === booking.answers.weddingDate ? "" : hall.date;
@@ -464,7 +467,9 @@ async function createCustomerWeddingQuotation(booking, restaurantId, hall, selec
     taxPercent,
     taxAmount,
     total,
-    advanceRequired: Math.round(total * 0.2 * 100) / 100,
+    advanceRequired: calculateAdvanceAmount(total, paymentPolicy.advancePercent),
+    advancePercent: paymentPolicy.advancePercent,
+    ...deadlinePolicySnapshot(paymentPolicy),
     rulesApplied,
     notes: "Automatic WhatsApp quote includes the selected wedding menu, hall rental, and configured tax. Decor and optional add-ons are excluded unless separately quoted.",
     generatedAt: new Date(),
@@ -472,12 +477,17 @@ async function createCustomerWeddingQuotation(booking, restaurantId, hall, selec
   booking.awaitingHallChoice = false;
   booking.awaitingQuotationAgreement = true;
   booking.awaitingAdvancePayment = false;
+  booking.paymentDeadlineAt = null;
+  booking.paymentDeadlineAction = "no_action";
+  booking.paymentDeadlineHandledAt = null;
+  if (paymentPolicy.advancePercent === 0) booking.paymentStatus = "not_required";
   await changeStage(booking, "proposal", null, "Configured menu, available hall, guest count, and current tax used to prepare an automatic wedding quotation.");
   return "";
 }
 
 function weddingQuotationMessage(booking, language) {
   const quotation = booking.quotation;
+  const advancePercent = Number(quotation.advancePercent ?? 20);
   const date = booking.acceptedAlternateDate || booking.answers.weddingDate;
   const lines = language === "roman"
     ? [
@@ -489,9 +499,9 @@ function weddingQuotationMessage(booking, language) {
       `Hall rent: Rs ${Number(quotation.hallRental).toLocaleString("en-PK")}`,
       `Tax (${quotation.taxPercent}%): Rs ${Number(quotation.taxAmount).toLocaleString("en-PK")}`,
       `Total: Rs ${Number(quotation.total).toLocaleString("en-PK")}`,
-      `20% advance: Rs ${Number(quotation.advanceRequired).toLocaleString("en-PK")}`,
+      `${advancePercent}% advance: Rs ${Number(quotation.advanceRequired).toLocaleString("en-PK")}`,
       "Yeh quote selected menu, hall aur tax ke liye hai; decor/optional add-ons shamil nahi.",
-      "Kya aap is quotation par agree karte hain? Haan kahenge to main verified payment details bhej dunga/dungi.",
+      Number(quotation.advanceRequired) > 0 ? "Kya aap is quotation par agree karte hain? Haan kahenge to main verified payment details bhej dunga/dungi." : "Kya aap is quotation par agree karte hain? Koi advance required nahi; staff agreement aur booking confirm karega.",
     ]
     : language === "ur"
       ? [
@@ -503,9 +513,9 @@ function weddingQuotationMessage(booking, language) {
         `ہال کا کرایہ: ${Number(quotation.hallRental).toLocaleString("en-PK")} روپے`,
         `ٹیکس (${quotation.taxPercent}%): ${Number(quotation.taxAmount).toLocaleString("en-PK")} روپے`,
         `کل رقم: ${Number(quotation.total).toLocaleString("en-PK")} روپے`,
-        `20% ایڈوانس: ${Number(quotation.advanceRequired).toLocaleString("en-PK")} روپے`,
+        `${advancePercent}% ایڈوانس: ${Number(quotation.advanceRequired).toLocaleString("en-PK")} روپے`,
         "اس کوٹیشن میں منتخب مینو، ہال اور ٹیکس شامل ہیں؛ ڈیکور اور اضافی سہولیات شامل نہیں۔",
-        "کیا آپ اس کوٹیشن سے متفق ہیں؟ ہاں کہیں تو میں تصدیق شدہ ادائیگی کی تفصیل بھیج دوں گا/گی۔",
+        Number(quotation.advanceRequired) > 0 ? "کیا آپ اس کوٹیشن سے متفق ہیں؟ ہاں کہیں تو میں تصدیق شدہ ادائیگی کی تفصیل بھیج دوں گا/گی۔" : "کیا آپ اس کوٹیشن سے متفق ہیں؟ کوئی ایڈوانس درکار نہیں؛ اسٹاف معاہدہ اور بکنگ کی تصدیق کرے گا۔",
       ]
       : [
         `Wedding quotation - ${booking.answers.eventType || "Wedding"}`,
@@ -516,15 +526,19 @@ function weddingQuotationMessage(booking, language) {
         `Hall rental: Rs ${Number(quotation.hallRental).toLocaleString("en-PK")}`,
         `Tax (${quotation.taxPercent}%): Rs ${Number(quotation.taxAmount).toLocaleString("en-PK")}`,
         `Total: Rs ${Number(quotation.total).toLocaleString("en-PK")}`,
-        `20% advance: Rs ${Number(quotation.advanceRequired).toLocaleString("en-PK")}`,
+        `${advancePercent}% advance: Rs ${Number(quotation.advanceRequired).toLocaleString("en-PK")}`,
         "This quote includes the selected menu, hall, and tax; decor and optional add-ons are not included.",
-        "Do you agree to this quotation? Reply yes and I will send the verified payment details.",
+        Number(quotation.advanceRequired) > 0 ? "Do you agree to this quotation? Reply yes and I will send the verified payment details." : "Do you agree to this quotation? No advance is required; staff will arrange the agreement and confirm the booking.",
       ];
   return [...lines, ...quotation.rulesApplied.map((rule) => `• ${rule}`)].join("\n");
 }
 
 function weddingPaymentRequestMessage(booking, payment, language) {
   const amount = `Rs ${Number(booking.quotation.advanceRequired).toLocaleString("en-PK")}`;
+  const percent = Number(booking.quotation.advancePercent ?? booking.advancePercent ?? 20);
+  const deadline = booking.paymentDeadlineAt
+    ? new Date(booking.paymentDeadlineAt).toLocaleString("en-PK", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Karachi" })
+    : "";
   const details = [
     `Bank: ${payment.bankName}`,
     `Account title: ${payment.accountTitle}`,
@@ -532,12 +546,12 @@ function weddingPaymentRequestMessage(booking, payment, language) {
     payment.iban ? `IBAN: ${payment.iban}` : "",
   ].filter(Boolean);
   if (language === "roman") {
-    return `Shukriya, aapka wedding quotation accept ho gaya. Booking abhi pending hai, confirm nahi hui. Meherbani karke 20% advance ${amount} jama karein:\\n${details.join("\n")}\\nPayment ke baad screenshot isi WhatsApp par bhej dein. CS team verify karke aapse rabta karegi; booking uske baad staff confirm karega.`;
+    return `Shukriya, aapka wedding quotation accept ho gaya. Booking abhi pending hai, confirm nahi hui. Meherbani karke ${percent}% advance ${amount} jama karein.${deadline ? ` Payment ki aakhri tareekh: ${deadline}.` : ""}\\n${details.join("\n")}\\nPayment ke baad screenshot isi WhatsApp par bhej dein. CS team verify karke aapse rabta karegi; booking uske baad staff confirm karega.`;
   }
   if (language === "ur") {
-    return `شکریہ، آپ کا ویڈنگ کوٹیشن قبول ہو گیا ہے۔ بکنگ ابھی زیرِ التوا ہے، کنفرم نہیں ہوئی۔ براہِ کرم 20% ایڈوانس ${amount} جمع کروائیں:\\n${details.join("\n")}\\nادائیگی کے بعد اسی واٹس ایپ پر اسکرین شاٹ بھیجیں۔ CS ٹیم تصدیق کرکے آپ سے رابطہ کرے گی؛ اس کے بعد اسٹاف بکنگ کنفرم کرے گا۔`;
+    return `شکریہ، آپ کا ویڈنگ کوٹیشن قبول ہو گیا ہے۔ بکنگ ابھی زیرِ التوا ہے، کنفرم نہیں ہوئی۔ براہِ کرم ${percent}% ایڈوانس ${amount} جمع کروائیں۔${deadline ? ` ادائیگی کی آخری تاریخ: ${deadline} (پاکستان ٹائم)` : ""}\\n${details.join("\n")}\\nادائیگی کے بعد اسی واٹس ایپ پر اسکرین شاٹ بھیجیں۔ CS ٹیم تصدیق کرکے آپ سے رابطہ کرے گی؛ اس کے بعد اسٹاف بکنگ کنفرم کرے گا۔`;
   }
-  return `Thank you, your wedding quotation is accepted. The booking is pending, not confirmed. Please pay the 20% advance of ${amount}:\\n${details.join("\n")}\\nAfter payment, send the screenshot here on WhatsApp. Our CS team will verify it and contact you; staff will confirm the booking after verification.`;
+  return `Thank you, your wedding quotation is accepted. The booking is pending, not confirmed. Please pay the ${percent}% advance of ${amount}.${deadline ? ` Payment deadline: ${deadline} Pakistan time.` : ""}\\n${details.join("\n")}\\nAfter payment, send the screenshot here on WhatsApp. Our CS team will verify it and contact you; staff will confirm the booking after verification.`;
 }
 
 exports.handleEnquiryMessage = async (req, res) => {
@@ -591,6 +605,25 @@ exports.handleEnquiryMessage = async (req, res) => {
         await booking.save();
         return res.json({ success: true, data: { active: false, handoff: true, bookingId: booking._id, complete: true, replyText } });
       }
+      if (Number(booking.quotation?.advancePercent ?? 20) === 0) {
+        booking.awaitingQuotationAgreement = false;
+        booking.awaitingAdvancePayment = false;
+        booking.advancePercent = Number(booking.quotation.advancePercent || 0);
+        booking.paymentStatus = "not_required";
+        booking.paymentDeadlineAt = null;
+        booking.paymentDeadlineAction = "no_action";
+        const replyText = booking.customerLanguage === "roman"
+          ? "Shukriya, aapka quotation accept ho gaya. Is booking ke liye advance required nahi hai. Booking staff ke signed agreement aur final confirmation tak pending rahegi."
+          : booking.customerLanguage === "ur"
+            ? "شکریہ، آپ کا کوٹیشن قبول ہو گیا ہے۔ اس بکنگ کے لیے ایڈوانس درکار نہیں۔ دستخط شدہ معاہدے اور اسٹاف کی حتمی تصدیق تک بکنگ زیرِ التوا رہے گی۔"
+            : "Thank you, your quotation is accepted. No advance payment is required. The booking remains pending until the agreement is signed and staff confirms it.";
+        await changeStage(booking, "agreement", null, "Customer accepted the wedding quotation; no advance is required, but the signed agreement and staff confirmation remain required.");
+        addAiReply(booking, QUESTIONS.length + 3, replyText);
+        await booking.save();
+        void notifyCustomerAgreed(req, booking);
+        return res.json({ success: true, data: { active: true, bookingId: booking._id, complete: true, replyText } });
+      }
+      const paymentPolicy = await getBookingPaymentPolicyForCategory(restaurantId, "Wedding Package");
       const payment = weddingPaymentInstructions();
       if (!payment.configured) {
         booking.awaitingQuotationAgreement = false;
@@ -603,7 +636,9 @@ exports.handleEnquiryMessage = async (req, res) => {
       booking.awaitingQuotationAgreement = false;
       booking.awaitingAdvancePayment = true;
       booking.paymentStatus = "unpaid";
+      booking.advancePercent = Number(booking.quotation.advancePercent ?? paymentPolicy.advancePercent);
       await changeStage(booking, "advance_payment", null, "Customer accepted the automatic wedding quotation; verified payment instructions sent.");
+      await setWeddingPaymentDeadlineIfNeeded(booking);
       const replyText = weddingPaymentRequestMessage(booking, payment, booking.customerLanguage);
       addAiReply(booking, QUESTIONS.length + 3, replyText);
       await booking.save();
@@ -940,6 +975,7 @@ exports.updateBooking = async (req, res) => {
       if (booking.stage === "confirmed") await releaseHall(booking);
       await changeStage(booking, req.body.stage, req.admin, String(req.body.stageNote || ""));
     }
+    await setWeddingPaymentDeadlineIfNeeded(booking);
     await booking.save();
     if (booking.stage === "no_booking" && previousStage !== "no_booking") void notifyCustomerDeclined(req, booking);
     res.json({ success: true, data: await populatedBooking(WeddingBooking.findById(booking._id)) });
@@ -952,6 +988,22 @@ exports.updateBooking = async (req, res) => {
 async function changeStage(booking, stage, admin, note = "") {
   booking.stage = stage;
   booking.stageHistory.push({ stage, changedBy: admin?._id || null, actorName: admin?.name || admin?.email || "WhatsApp AI", note: note.slice(0, 500) });
+}
+
+async function setWeddingPaymentDeadlineIfNeeded(booking) {
+  if (booking.stage !== "advance_payment" || Number(booking.quotation?.advancePercent ?? 20) <= 0 || booking.paymentDeadlineAt) return;
+  const currentPolicy = await getBookingPaymentPolicyForCategory(booking.restaurantId, "Wedding Package");
+  const policy = {
+    ...currentPolicy,
+    deadlineMode: booking.quotation.paymentDeadlineMode || currentPolicy.deadlineMode,
+    deadlineDurationValue: booking.quotation.paymentDeadlineDurationValue || currentPolicy.deadlineDurationValue,
+    deadlineDurationUnit: booking.quotation.paymentDeadlineDurationUnit || currentPolicy.deadlineDurationUnit,
+    deadlineTime: booking.quotation.paymentDeadlineTime || currentPolicy.deadlineTime,
+    deadlineAction: booking.quotation.paymentDeadlineAction || currentPolicy.deadlineAction,
+    appliesToCategory: booking.quotation.bookingPaymentPolicyEnabled ?? currentPolicy.appliesToCategory,
+  };
+  booking.advancePercent = Number(booking.quotation.advancePercent ?? policy.advancePercent);
+  setPaymentDeadline(booking, { ...policy, advancePercent: booking.advancePercent });
 }
 
 exports.updateStage = async (req, res) => {
@@ -988,11 +1040,43 @@ exports.updateStage = async (req, res) => {
       if (stage === "agreement") booking.agreementSentAt = new Date();
       await changeStage(booking, stage, req.admin, note || "");
     }
+    await setWeddingPaymentDeadlineIfNeeded(booking);
     await booking.save();
     if (booking.stage === "no_booking" && previousStage !== "no_booking" && !rejectingPaymentProof) void notifyCustomerDeclined(req, booking);
     res.json({ success: true, data: await populatedBooking(WeddingBooking.findById(booking._id)) });
   } catch (error) {
     console.error("updateWeddingStage error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+exports.cancelBooking = async (req, res) => {
+  try {
+    if (!mongoose.isValidObjectId(req.params.id)) return res.status(400).json({ success: false, message: "Invalid wedding booking id." });
+    const booking = await WeddingBooking.findOne({ _id: req.params.id, restaurantId: req.admin.restaurantId, bookingType: "wedding" });
+    if (!booking) return res.status(404).json({ success: false, message: "Wedding booking not found." });
+    const reason = String(req.body.reason || "").trim();
+    if (!reason) return res.status(400).json({ success: false, message: "A cancellation reason is required." });
+    if (reason.length > 500) return res.status(400).json({ success: false, message: "Cancellation reason must be 500 characters or fewer." });
+    if (["executed", "feedback"].includes(booking.stage)) return res.status(409).json({ success: false, message: "Completed wedding events cannot be cancelled." });
+    if (booking.stage === "no_booking" && booking.cancellationMessageStatus !== "failed") {
+      return res.status(409).json({ success: false, message: "This wedding booking is already cancelled." });
+    }
+    if (booking.stage !== "no_booking") {
+      if (booking.stage === "confirmed") await releaseHall(booking);
+      await changeStage(booking, "no_booking", req.admin, reason);
+      void notifyCustomerDeclined(req, booking);
+    }
+    booking.cancellationReason = reason;
+    await booking.save();
+    const warning = await sendEventBookingCancellation({ req, booking, bookingType: "wedding", reason });
+    res.json({
+      success: true,
+      data: await populatedBooking(WeddingBooking.findById(booking._id)),
+      ...(warning ? { warning } : {}),
+    });
+  } catch (error) {
+    console.error("cancelWeddingBooking error:", error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -1049,7 +1133,8 @@ exports.createQuotation = async (req, res) => {
     if (!Number.isFinite(taxPercent) || taxPercent < 0 || taxPercent > 100) return res.status(400).json({ success: false, message: "Tax percent must be between 0 and 100." });
     const taxAmount = Math.round((subtotal - discount) * taxPercent) / 100;
     const total = Math.round((subtotal - discount + taxAmount) * 100) / 100;
-    const advanceRequired = Math.round(total * 0.2 * 100) / 100;
+    const paymentPolicy = await getBookingPaymentPolicyForCategory(req.admin.restaurantId, "Wedding Package");
+    const advanceRequired = calculateAdvanceAmount(total, paymentPolicy.advancePercent);
     booking.answers.guests = guests;
     booking.hallId = hall?._id || null;
     booking.hallName = hall?.name || "";
@@ -1058,9 +1143,16 @@ exports.createQuotation = async (req, res) => {
     booking.selectedMenuName = selectedMenu.name;
     booking.quotation = {
       guests, menuPricePerPerson: selectedMenu.pricePerPerson, menuSubtotal, hallRental,
-      decorCost, addOns, discount, taxPercent, taxAmount, total, advanceRequired, rulesApplied,
+      decorCost, addOns, discount, taxPercent, taxAmount, total, advanceRequired,
+      advancePercent: paymentPolicy.advancePercent, rulesApplied,
+      ...deadlinePolicySnapshot(paymentPolicy),
       notes: String(req.body.notes || ""), generatedAt: new Date(),
     };
+    booking.advancePercent = paymentPolicy.advancePercent;
+    if (paymentPolicy.advancePercent === 0) booking.paymentStatus = "not_required";
+    booking.paymentDeadlineAt = null;
+    booking.paymentDeadlineAction = "no_action";
+    booking.paymentDeadlineHandledAt = null;
     await changeStage(booking, "proposal", req.admin, "Wedding quotation calculated from configured menu, hall and add-ons.");
     await booking.save();
     res.json({ success: true, data: await populatedBooking(WeddingBooking.findById(booking._id)) });
@@ -1145,7 +1237,7 @@ function weddingConfirmationText(booking) {
       `Time: ${time}`,
       `Guests: ${guests}`,
       `Menu: ${menu}`,
-      `Verified advance: ${advance}`,
+      Number(booking.quotation.advancePercent ?? 20) > 0 ? `Verified advance: ${advance}` : "Advance required: Rs 0",
       "Shukriya, hamari team final event arrangements ke liye aapse rabta karegi.",
     ].join("\n");
   }
@@ -1160,7 +1252,7 @@ function weddingConfirmationText(booking) {
       `وقت: ${time}`,
       `مہمان: ${guests}`,
       `مینو: ${menu}`,
-      `تصدیق شدہ ایڈوانس: ${advance}`,
+      Number(booking.quotation.advancePercent ?? 20) > 0 ? `تصدیق شدہ ایڈوانس: ${advance}` : "ایڈوانس درکار نہیں: 0 روپے",
       "شکریہ، تقریب کی حتمی تیاریوں کے لیے ہماری ٹیم آپ سے رابطہ کرے گی۔",
     ].join("\n");
   }
@@ -1174,7 +1266,7 @@ function weddingConfirmationText(booking) {
     `Time: ${time}`,
     `Guests: ${guests}`,
     `Menu: ${menu}`,
-    `Advance verified: ${advance}`,
+    Number(booking.quotation.advancePercent ?? 20) > 0 ? `Advance verified: ${advance}` : "Advance required: Rs 0",
     "",
     "Thank you for choosing Hotel d'GATES. We look forward to celebrating with you.",
   ].join("\n");
@@ -1221,11 +1313,11 @@ exports.confirmBooking = async (req, res) => {
     if (booking.stage === "confirmed" && booking.confirmationMessageStatus !== "failed") {
       return res.status(409).json({ success: false, message: "This wedding is already confirmed. Use Chat History for any follow-up message." });
     }
-    if (!booking.paymentVerified) return res.status(409).json({ success: false, message: "CS must verify the advance payment before confirmation." });
+    if (Number(booking.quotation?.advancePercent ?? 20) > 0 && !booking.paymentVerified) return res.status(409).json({ success: false, message: "CS must verify the advance payment before confirmation." });
     if (!booking.agreementUrl) return res.status(409).json({ success: false, message: "Save the signed agreement/contract before confirmation." });
     await reserveHall(booking, req.admin);
     booking.answers.weddingDate = booking.acceptedAlternateDate || booking.answers.weddingDate;
-    await changeStage(booking, "confirmed", req.admin, "Payment and contract verified; hall/date reserved.");
+    await changeStage(booking, "confirmed", req.admin, Number(booking.quotation?.advancePercent ?? 20) > 0 ? "Payment and contract verified; hall/date reserved." : "No advance required; signed contract checked and hall/date reserved.");
     await booking.save();
     const message = weddingConfirmationText(booking);
     let confirmationWarning = "";

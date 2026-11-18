@@ -37,6 +37,23 @@ const aiTeamLabelsSchema = new mongoose.Schema({
 
 const settingSchema = new mongoose.Schema({
   restaurantId: { type: String, required: true, unique: true, trim: true },
+  hotelInfo: {
+    address: { type: String, default: "", trim: true, maxlength: 1000 },
+    mapUrl: { type: String, default: "", trim: true, maxlength: 2000 },
+    updatedAt: { type: Date, default: null },
+    updatedBy: { type: String, default: "", trim: true, maxlength: 160 },
+  },
+  bookingPaymentPolicy: {
+    advancePercent: { type: Number, default: 20, min: 0, max: 100 },
+    deadlineMode: { type: String, enum: ["duration", "same_day", "next_day"], default: "duration" },
+    deadlineDurationValue: { type: Number, default: 24, min: 1, max: 365 },
+    deadlineDurationUnit: { type: String, enum: ["hours", "days"], default: "hours" },
+    deadlineTime: { type: String, default: "17:00", match: /^([01]\d|2[0-3]):[0-5]\d$/ },
+    deadlineAction: { type: String, enum: ["pending_alert", "auto_cancel", "no_action"], default: "pending_alert" },
+    disabledCategories: { type: [{ type: String, trim: true, maxlength: 120 }], default: [] },
+    updatedAt: { type: Date, default: null },
+    updatedBy: { type: String, default: "", trim: true, maxlength: 160 },
+  },
   aiAgents: { type: [aiAgentSchema], default: [] },
   aiTeamLabels: { type: aiTeamLabelsSchema, default: () => ({}) },
   followUpReminderDelayMinutes: { type: Number, default: 1440, min: 1, max: 43200 },

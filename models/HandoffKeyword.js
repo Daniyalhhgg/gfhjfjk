@@ -4,6 +4,7 @@ const mongoose = require("mongoose");
 const handoffKeywordSchema = new mongoose.Schema({
   restaurantId: { type: String, required: true, unique: true, trim: true },
   words: { type: [String], default: [] },
+  defaultsVersion: { type: Number, default: 0 },
 }, { timestamps: true });
 
 module.exports = mongoose.model("HandoffKeyword", handoffKeywordSchema);

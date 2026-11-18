@@ -16,7 +16,7 @@ const agentRequestSchema = new mongoose.Schema({
   reason: { type: String, enum: ["human_requested", "bot_handoff"], default: "human_requested" },
   keyword: { type: String, default: "", trim: true },
   priority: { type: String, enum: ["high", "medium"], default: "high" },
-  status: { type: String, enum: ["open", "taken", "resolved"], default: "open", index: true },
+  status: { type: String, enum: ["open", "taken", "resolved", "expired"], default: "open", index: true },
   firstMessage: { type: String, default: "", maxlength: 1000 },
   lastMessage: { type: String, default: "", maxlength: 1000 },
   lastAt: { type: Date, default: Date.now },
@@ -26,6 +26,10 @@ const agentRequestSchema = new mongoose.Schema({
   takenAt: { type: Date, default: null },
   takenBy: { type: mongoose.Schema.Types.ObjectId, ref: "Admin", default: null },
   resolvedAt: { type: Date, default: null },
+  expiredAt: { type: Date, default: null },
+  timeoutAt: { type: Date, default: null, index: true },
+  nextEscalationAt: { type: Date, default: null, index: true },
+  escalationLevel: { type: Number, default: 0 },
 }, { timestamps: true });
 
 agentRequestSchema.index({ restaurantId: 1, phoneKey: 1, status: 1 });

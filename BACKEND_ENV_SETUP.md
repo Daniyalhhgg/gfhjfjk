@@ -51,7 +51,7 @@ When using a hosted Redis service, set `REDIS_URL`. Otherwise, the backend defau
 | `WHATSAPP_REMINDER_TEMPLATE_LANGUAGE` | Template language code; defaults to `en` |
 | `WHATSAPP_BROADCAST_TEMPLATE_NAME` | Meta-approved broadcast template for customers outside the 24-hour window |
 | `WHATSAPP_BROADCAST_TEMPLATE_LANGUAGE` | Broadcast template language code; defaults to `en` |
-| `WHATSAPP_CS_TEAM_NUMBER` | Forwards submitted payment-proof images to the CS team's WhatsApp number |
+| `WHATSAPP_CS_TEAM_NUMBER` | Legacy fallback WhatsApp recipient when the alert-specific number is blank in CRM > Human Support Workflow |
 | `PAYMENT_BANK_NAME` | Bank name shown in payment instructions; defaults to Meezan Bank |
 | `PAYMENT_ACCOUNT_TITLE` | Account title shown to customers |
 | `PAYMENT_ACCOUNT_NUMBER` | Account number shown to customers |

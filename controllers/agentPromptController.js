@@ -1,25 +1,16 @@
 const Setting = require("../models/Setting");
 const defaultConfig = require("../config/defaultAgentPrompt.json");
+const { getBookingPaymentPolicy } = require("../services/bookingPaymentPolicy");
 const defaultPrompt = defaultConfig.prompt;
 const DEFAULT_VERSION = Number(defaultConfig.version) || 1;
-const REMINDER_PROMPT_START = "\n\nAUTOMATIC FOLLOW-UP REMINDERS";
-const reminderStart = defaultPrompt.lastIndexOf(REMINDER_PROMPT_START);
-const reminderPromptRules = reminderStart >= 0 ? defaultPrompt.slice(reminderStart) : "";
 const followUpDelayLabel = (minutes) => {
   if (minutes % 1440 === 0) return `${minutes / 1440} day${minutes === 1440 ? "" : "s"}`;
   if (minutes % 60 === 0) return `${minutes / 60} hour${minutes === 60 ? "" : "s"}`;
   return `${minutes} minute${minutes === 1 ? "" : "s"}`;
 };
 
-const activePrompt = (content) => {
-  const text = String(content || "");
-  const markerIndex = text.lastIndexOf(REMINDER_PROMPT_START);
-  const base = (markerIndex >= 0 ? text.slice(0, markerIndex) : text).trimEnd();
-  return `${base}${reminderPromptRules}`;
-};
-
 const promptWithFollowUpTiming = (content, delayMinutes) => {
-  const prompt = activePrompt(content);
+  const prompt = String(content || "");
   const timing = followUpDelayLabel(delayMinutes);
   return prompt
     .replace("exactly 24 hours after the timestamp", `after the live CRM-configured delay (${timing}) from the message timestamp`)
@@ -156,12 +147,47 @@ exports.getPublicAgentPrompt = async (req, res) => {
     if (!restaurantId || restaurantId.length > 100) {
       return res.status(400).json({ success: false, message: "A valid restaurantId is required." });
     }
-    const setting = await getOrCreatePromptSettings(restaurantId);
+    const [setting, policy] = await Promise.all([
+      getOrCreatePromptSettings(restaurantId),
+      getBookingPaymentPolicy(restaurantId),
+    ]);
     const delayMinutes = Number(setting.followUpReminderDelayMinutes) || 1440;
+    const actionText = {
+      pending_alert: "If the deadline passes, keep the booking pending and alert CS.",
+      auto_cancel: "If the deadline passes without proof under review, the booking is automatically cancelled.",
+      no_action: "If the deadline passes, take no automatic action.",
+    }[policy.deadlineAction];
+    const deadlineText = policy.deadlineMode === "duration"
+      ? `${policy.deadlineDurationValue} ${policy.deadlineDurationUnit} after booking or quotation acceptance`
+      : `${policy.deadlineMode === "same_day" ? "the same Pakistan-local day" : "the next Pakistan-local day"} at ${policy.deadlineTime} Pakistan time`;
+    const disabledCategories = Array.isArray(policy.disabledCategories) ? policy.disabledCategories : [];
+    const livePolicy = [
+      "LIVE BOOKING PAYMENT POLICY (authoritative; overrides any conflicting advance/deadline percentages or rules elsewhere in this prompt):",
+      "Apply this policy to new bookings only. For an existing booking, use its saved advanceAmount, advancePercent, and paymentDeadlineAt from customer CRM context.",
+      `For menu categories whose policy checkbox is enabled, required advance is ${policy.advancePercent}%.`,
+      policy.advancePercent === 0
+        ? "For enabled menu categories, no payment proof or advance is required. Do not request payment. The booking still stays pending until staff confirms it."
+        : "For enabled menu categories, tell customers the configured advance percentage and amount from the CRM; do not assume a different percentage.",
+      disabledCategories.length
+        ? `Policy checkbox is OFF for these categories: ${disabledCategories.join(", ")}. Use the existing legacy 20% advance for them and do not apply the configurable deadline/action.`
+        : "Policy checkbox is ON for all current menu categories. New menu categories are enabled by default unless their category is explicitly listed as disabled.",
+      `Payment deadline: ${deadlineText}.`,
+      `The configured deadline/action applies only to categories with the policy checkbox enabled. ${actionText}`,
+      "Wedding and Corporate bookings also retain their existing agreement and staff-confirmation requirements.",
+    ].join("\n");
     res.set("Cache-Control", "no-store");
-    res.json({ success: true, data: { prompt: promptWithFollowUpTiming(setting.agentPrompt.content, delayMinutes), revision: setting.agentPrompt.revision } });
+    res.json({
+      success: true,
+      data: {
+        prompt: `${promptWithFollowUpTiming(setting.agentPrompt.content, delayMinutes)}\n\n${livePolicy}`,
+        revision: setting.agentPrompt.revision,
+        bookingPaymentPolicy: policy,
+      },
+    });
   } catch (error) {
     console.error("getPublicAgentPrompt error:", error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
+
+exports.promptWithFollowUpTiming = promptWithFollowUpTiming;

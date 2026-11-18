@@ -15,6 +15,7 @@ const {
   getCustomerBookingContext,
   verifyPayment,
   checkInBooking,
+  sendTodayBookingFollowUp,
 } = require("../controllers/bookingController");
 
 const auth = require("../middleware/auth");
@@ -36,6 +37,7 @@ router.patch("/:id/status", auth, updateBookingStatus); // Quick status update (
 router.patch("/:id/confirm", auth, confirmBooking);
 router.patch("/:id/verify-payment", auth, verifyPayment);
 router.patch("/:id/check-in", auth, checkInBooking);
+router.post("/:id/follow-up-message", auth, sendTodayBookingFollowUp);
 router.put("/:id", auth, updateBooking);                // Full booking edit (CRM modal)
 router.get("/:id", auth, getBookingById);
 router.post("/", auth, createBooking);

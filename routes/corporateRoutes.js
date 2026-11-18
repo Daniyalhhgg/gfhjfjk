@@ -21,6 +21,7 @@ router.post("/bookings", auth, controller.createBooking);
 router.get("/bookings/:id", auth, controller.getBooking);
 router.put("/bookings/:id", auth, controller.updateBooking);
 router.patch("/bookings/:id/stage", auth, controller.updateStage);
+router.patch("/bookings/:id/cancel", auth, controller.cancelBooking);
 router.post("/bookings/:id/quotation", auth, controller.createQuotation);
 router.patch("/bookings/:id/verify-payment", auth, controller.verifyPayment);
 router.patch("/bookings/:id/confirm", auth, controller.confirmBooking);

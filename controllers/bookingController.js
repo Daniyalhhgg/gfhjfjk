@@ -1132,9 +1132,9 @@ exports.capturePaymentScreenshot = async (req, res) => {
         WeddingBooking.find({ restaurantId, bookingType: "wedding", paymentVerified: false, stage: { $in: ["proposal", "advance_payment", "agreement", "cs_verification"] } }).sort({ createdAt: -1 }).limit(100),
         WeddingBooking.find({ restaurantId, bookingType: "corporate", paymentVerified: false, stage: { $in: ["proposal", "advance_payment", "agreement", "cs_verification"] } }).sort({ createdAt: -1 }).limit(100),
       ]);
-      booking = candidates.find((candidate) => String(candidate.customerPhone || "").replace(/\D/g, "") === phone);
-      weddingBooking = weddingCandidates.find((candidate) => String(candidate.customerPhone || "").replace(/\D/g, "") === phone);
-      corporateBooking = corporateCandidates.find((candidate) => String(candidate.customerPhone || "").replace(/\D/g, "") === phone);
+      booking = candidates.find((candidate) => matchPhone(candidate.customerPhone, phone));
+      weddingBooking = weddingCandidates.find((candidate) => matchPhone(candidate.customerPhone, phone));
+      corporateBooking = corporateCandidates.find((candidate) => matchPhone(candidate.customerPhone, phone));
       const matches = [booking, weddingBooking, corporateBooking].filter(Boolean).sort((a, b) => b.createdAt - a.createdAt);
       booking = matches[0] instanceof Booking ? matches[0] : null;
       weddingBooking = matches[0] instanceof WeddingBooking && matches[0].bookingType === "wedding" ? matches[0] : null;
@@ -1149,8 +1149,9 @@ exports.capturePaymentScreenshot = async (req, res) => {
     let screenshotUrl = url;
     let mediaFilename = "";
     if (mediaId) {
+      const whatsAppAccessToken = readEnv("WHATSAPP_ACCESS_TOKEN") || readEnv("WHATSAPP_TOKEN");
       const requiredConfig = [
-        process.env.WHATSAPP_ACCESS_TOKEN,
+        whatsAppAccessToken,
         process.env.CLOUDINARY_CLOUD_NAME,
         process.env.CLOUDINARY_API_KEY,
         process.env.CLOUDINARY_API_SECRET,
@@ -1159,14 +1160,14 @@ exports.capturePaymentScreenshot = async (req, res) => {
         return res.status(503).json({ success: false, message: "WhatsApp media and Cloudinary upload credentials must be configured to save incoming media." });
       }
       const media = await axios.get(`https://graph.facebook.com/v18.0/${encodeURIComponent(mediaId)}`, {
-        headers: { Authorization: `Bearer ${process.env.WHATSAPP_ACCESS_TOKEN}` },
+        headers: { Authorization: `Bearer ${whatsAppAccessToken}` },
       });
       if (typeof media.data?.url !== "string" || !media.data.url.startsWith("https://")) {
         return res.status(502).json({ success: false, message: "WhatsApp did not provide a valid media URL." });
       }
       mediaFilename = String(media.data.filename || "");
       const image = await axios.get(media.data.url, {
-        headers: { Authorization: `Bearer ${process.env.WHATSAPP_ACCESS_TOKEN}` },
+        headers: { Authorization: `Bearer ${whatsAppAccessToken}` },
         responseType: "arraybuffer",
         maxContentLength: 10 * 1024 * 1024,
         maxBodyLength: 10 * 1024 * 1024,

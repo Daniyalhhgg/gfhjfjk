@@ -315,11 +315,31 @@ async function notifyCsTeam({
         type: "text",
         text: { body: caption },
       };
-    const response = await axios.post(
-      `https://graph.facebook.com/v18.0/${phoneNumberId}/messages`,
-      payload,
-      { headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" } }
-    );
+    const url = `https://graph.facebook.com/v18.0/${phoneNumberId}/messages`;
+    const options = { headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" } };
+    let response;
+    try {
+      response = await axios.post(url, payload, options);
+    } catch (error) {
+      if (!mediaUrl || error.response?.status !== 400) throw error;
+      console.warn("WhatsApp CS media alert was rejected; trying text alert with proof link.", {
+        recipientType,
+        recipientLastFour: digitsOnly(csNumber).slice(-4),
+        error: error.response?.data?.error?.message || error.message,
+      });
+      response = await axios.post(url, {
+        messaging_product: "whatsapp",
+        to: digitsOnly(csNumber),
+        type: "text",
+        text: { body: `${caption}\n\nScreenshot: ${mediaUrl}` },
+      }, options);
+      console.info("WhatsApp CS text fallback accepted by Meta", {
+        recipientType,
+        recipientLastFour: digitsOnly(csNumber).slice(-4),
+        messageId: response.data?.messages?.[0]?.id || null,
+      });
+      return "";
+    }
     console.info("WhatsApp CS alert accepted by Meta", {
       recipientType,
       recipientLastFour: digitsOnly(csNumber).slice(-4),

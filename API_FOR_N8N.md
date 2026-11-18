@@ -47,7 +47,7 @@ The editable n8n workflow `n8n-workflows/restaurant-whatsapp-ai-bot.json` maps t
 
 ## Human support workflow settings
 
-The CRM's **Support Workflow** page stores human-agent availability, request detection, customer messages, pending-request timeout, and escalation contacts per restaurant. Human-support requests and escalations follow a weekly schedule, with each weekday using custom Pakistan-time hours, open all day, or closed all day; global 24/7 and unavailable modes apply to human support. Internal booking and payment alerts to staff are always sent when their configured WhatsApp recipients and provider credentials are available; human-support hours do not suppress them. Booking/payment records, verification, customer confirmations, CRM events, and socket updates continue normally. When human support is unavailable, the bot continues helping and does not create a new human request; pending escalations wait until the next human-support opening. Specific Roman Urdu, Urdu-script, and English phrases for booking changes/cancellations, booking problems, payment issues, refunds, complaints, and room issues are preloaded into the custom phrase list once. Existing custom phrases are preserved. Phrase matching is substring-based; timeout and automatic resolution messages remain off until enabled by an admin.
+The CRM's **Support Workflow** page stores human-agent availability, request detection, customer messages, pending-request timeout, and escalation contacts per restaurant. Human-support requests and escalations follow a weekly schedule, with each weekday using custom Pakistan-time hours, open all day, or closed all day; global 24/7 and unavailable modes apply to human support. Internal booking and payment alerts to staff are always sent when their configured WhatsApp recipients and provider credentials are available; human-support hours do not suppress them. Booking/payment records, verification, customer confirmations, CRM events, and socket updates continue normally. When human support is unavailable, a detected human request gets the configured unavailable message and does not create a new human request; the workflow also replaces any accidental AI handoff marker before sending or saving the normal reply. Pending escalations wait until the next human-support opening. Specific Roman Urdu, Urdu-script, and English phrases for booking changes/cancellations, booking problems, payment issues, refunds, complaints, and room issues are preloaded into the custom phrase list once. Existing custom phrases are preserved. Phrase matching is substring-based; timeout and automatic resolution messages remain off until enabled by an admin.
 
 Authenticated CRM endpoints:
 
@@ -483,7 +483,7 @@ Configure these on the backend deployment:
 | `WHATSAPP_PHONE_NUMBER_ID` / `WHATSAPP_ACCESS_TOKEN` | WhatsApp Cloud API credentials for booking confirmations, CS, and scheduled follow-ups. |
 | `WHATSAPP_CS_TEAM_NUMBER` | Legacy fallback recipient when an alert-specific WhatsApp number is blank in CRM > Human Support Workflow. |
 
-Cloudinary variables are only needed for uploading menu media from the CRM; menu URLs can also be entered directly. n8n does not need Cloudinary credentials.
+Cloudinary variables are required for menu uploads and for archiving incoming WhatsApp media, including payment screenshots. n8n does not need Cloudinary credentials because the backend performs the upload.
 
 ## Wedding halls and WhatsApp enquiries
 

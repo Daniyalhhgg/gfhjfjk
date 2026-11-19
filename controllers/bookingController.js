@@ -1746,11 +1746,18 @@ exports.getCustomerBookingContext = async (req, res) => {
     if (phone.length < 7) return res.status(400).json({ success: false, message: "A valid phone is required" });
     const phoneTail = phone.slice(-7);
     const phonePattern = new RegExp(phoneTail.split("").join("[^0-9]*") + "$");
-    const [standard, events, bookingPaymentPolicy] = await Promise.all([
+    const [standard, events, bookingPaymentPolicy, chatHistory] = await Promise.all([
       Booking.find({ restaurantId, customerPhone: { $regex: phonePattern } }).sort({ createdAt: -1 }).limit(100).lean(),
       WeddingBooking.find({ restaurantId, customerPhone: { $regex: phonePattern } }).sort({ createdAt: -1 }).limit(100).lean(),
       getBookingPaymentPolicy(restaurantId),
+      Chat.find({ restaurantId, customerPhone: { $regex: phonePattern }, createdAt: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) } })
+        .sort({ createdAt: -1 }).limit(8).select("customerPhone customerMessage botReply createdAt").lean(),
     ]);
+    const recentChat = chatHistory.filter((item) => matchPhone(item.customerPhone, phone)).map((item) => ({
+      customerMessage: String(item.customerMessage || "").slice(0, 500),
+      botReply: String(item.botReply || "").slice(0, 700),
+      createdAt: item.createdAt,
+    }));
     const bookings = standard.filter((item) => matchPhone(item.customerPhone, phone)).slice(0, 8).map((item) => ({
       type: "standard",
       id: String(item._id),
@@ -1811,6 +1818,7 @@ exports.getCustomerBookingContext = async (req, res) => {
         phone,
         bookings,
         eventBookings,
+        recentChat,
         bookingPaymentPolicy,
         hasPaymentDecline,
         // Configured company payment details, so the bot can repeat them exactly when asked.

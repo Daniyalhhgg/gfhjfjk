@@ -1,5 +1,15 @@
 const mongoose = require("mongoose");
 
+const childPolicySnapshotSchema = new mongoose.Schema({
+  enabled: { type: Boolean, default: false },
+  ageLimit: { type: Number, min: 1, max: 18, default: null },
+  maxFreeChildren: { type: Number, min: 1, default: null },
+  requiresGuardian: { type: Boolean, default: false },
+  guardianAccompanied: { type: Boolean, default: null },
+  childrenUnderAge: { type: Number, min: 0, default: 0 },
+  freeChildren: { type: Number, min: 0, default: 0 },
+}, { _id: false });
+
 const bookingSchema = new mongoose.Schema(
   {
     restaurantId: {
@@ -69,6 +79,10 @@ const bookingSchema = new mongoose.Schema(
       required: true,
       min: 1,
       default: 1,
+    },
+    childPolicySnapshot: {
+      type: childPolicySnapshotSchema,
+      default: () => ({}),
     },
 
     bookingDate: {

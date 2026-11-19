@@ -16,6 +16,7 @@ const { publishDashboardNotification } = require("../services/dashboardNotificat
 const { getSupportSettings, isSupportTypeAvailable } = require("../services/supportSettings");
 const { buildCustomerCancellationMessage } = require("../services/bookingCancellation");
 const { sendWhatsAppText: sendWhatsAppTextService } = require("../services/whatsappText");
+const { buildChildPolicySnapshot } = require("../services/childPolicy");
 const {
   getBookingPaymentPolicy,
   getBookingPaymentPolicyForCategory,
@@ -203,6 +204,13 @@ const bookingDetailLines = (booking) => [
   booking.checkOutDate ? `Check-out: ${formatPkDate(booking.checkOutDate)}` : "",
   booking.roomType ? "" : `Time: ${booking.bookingTime || "Not recorded"}`,
   `Guests: ${booking.numberOfPersons || "Not recorded"}`,
+  ...(booking.childPolicySnapshot?.enabled ? [
+    `Children under ${booking.childPolicySnapshot.ageLimit}: ${booking.childPolicySnapshot.childrenUnderAge}`,
+    `Free children: ${booking.childPolicySnapshot.freeChildren}`,
+    booking.childPolicySnapshot.requiresGuardian && booking.childPolicySnapshot.childrenUnderAge > 0
+      ? `Parent/guardian accompanying: ${booking.childPolicySnapshot.guardianAccompanied ? "Yes" : "No"}`
+      : "",
+  ] : []),
   booking.specialRequests ? `Special requests: ${booking.specialRequests}` : "",
 ].filter(Boolean);
 const bookingConfirmationText = (booking) => {
@@ -818,6 +826,9 @@ exports.createBookingFromWhatsApp = async (req, res) => {
     ).trim();
     const policyCategory = roomBooking ? "Rooms" : (bookingCategory === "Wedding" ? "Wedding Package" : bookingCategory);
     const policy = await getBookingPaymentPolicyForCategory(assignedRestaurantId, policyCategory);
+    const numberOfPersons = Number(parsed.numberOfPersons ?? 1);
+    const menu = await Menu.findOne({ restaurantId: assignedRestaurantId, category: policyCategory }).select("childPolicy").lean();
+    const childPolicySnapshot = buildChildPolicySnapshot(menu?.childPolicy, parsed, numberOfPersons);
     const payload = {
       customerId: fromNumber,
       customerName: parsed.customerName || "WhatsApp Customer",
@@ -829,7 +840,8 @@ exports.createBookingFromWhatsApp = async (req, res) => {
       bookingCategory,
       selectedItems,
       bookingDetails,
-      numberOfPersons: parsed.numberOfPersons || 1,
+      numberOfPersons,
+      childPolicySnapshot,
       bookingDate: parsed.bookingDate,
       bookingTime: parsed.bookingTime || (roomBooking ? "15:00" : ""),
       roomTypeId: parsed.roomTypeId || undefined,
@@ -1116,6 +1128,14 @@ exports.updateBooking = async (req, res) => {
     const existingBooking = await Booking.findOne({ _id: id, restaurantId: req.admin.restaurantId });
     if (!existingBooking) return res.status(404).json({ success: false, message: "Booking not found" });
     const availabilityData = { ...existingBooking.toObject(), ...updateData };
+    if (updateData.numberOfPersons !== undefined && existingBooking.childPolicySnapshot?.enabled) {
+      const newGuestCount = Number(updateData.numberOfPersons);
+      if (!Number.isInteger(newGuestCount) || newGuestCount < 1 || newGuestCount < existingBooking.childPolicySnapshot.childrenUnderAge) {
+        return res.status(400).json({ success: false, message: "Guest count must include all recorded children under the child-policy age." });
+      }
+      updateData.numberOfPersons = newGuestCount;
+      availabilityData.numberOfPersons = newGuestCount;
+    }
     const availability = await checkBookingCapacity(availabilityData, req.admin.restaurantId, id);
     if (availability && !availability.available) {
       return res.status(409).json({ success: false, message: availability.reason || "The selected availability is no longer open.", availability });
@@ -1745,6 +1765,7 @@ exports.getCustomerBookingContext = async (req, res) => {
       package: item.package,
       selectedItems: item.selectedItems || [],
       bookingDetails: item.bookingDetails || [],
+      childPolicySnapshot: item.childPolicySnapshot || null,
       date: item.bookingDate,
       time: item.bookingTime,
       guests: item.numberOfPersons,

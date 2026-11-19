@@ -405,6 +405,8 @@ curl -X POST "https://YOUR_API_HOST/api/bookings/from-whatsapp" \
         { "label": "Occasion", "value": "Birthday" }
       ],
       "numberOfPersons": 4,
+      "childrenUnderAge": 0,
+      "guardianAccompanied": null,
       "bookingDate": "2026-06-20",
       "bookingTime": "17:30",
       "totalAmount": 10000,
@@ -419,6 +421,7 @@ curl -X POST "https://YOUR_API_HOST/api/bookings/from-whatsapp" \
 
 Success response uses `{ "success": true, "message": "...", "data": <booking> }`. The created WhatsApp booking starts with `pending` status.
 `bookingCategory` identifies the configured menu category; `package` and `selectedItems` retain the exact customer selection, while `bookingDetails` stores confirmed category-specific answers. Do not send guessed item prices or details.
+`numberOfPersons` is always the total number of attendees, including children. Child fields are ignored while the menu's child policy is disabled. When enabled, send `childrenUnderAge` as the number younger than the configured age limit (the exact limit age is not included); if a guardian is required and children are present, also send `guardianAccompanied` as a boolean. The backend applies the configured free-child cap and saves a policy snapshot with the booking. For per-person pricing, `totalAmount` must be calculated using chargeable guests after the free-child count; keep room/per-room or fixed group pricing unchanged.
 When a new WhatsApp booking is saved as pending, the backend sends an English staff alert with the customer and booking details and the current payment state to the `booking_issue` WhatsApp recipient configured in CRM Support Workflow (or `WHATSAPP_CS_TEAM_NUMBER` when that field is blank). This alert does not create a Human Agent Request; payment-proof alerts remain separate.
 
 ## Attach a payment screenshot

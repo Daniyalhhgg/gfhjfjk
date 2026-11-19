@@ -96,6 +96,13 @@ const menuSectionSchema = new mongoose.Schema({
   items: { type: [String], default: [] },
 }, { _id: false });
 
+const childPolicySchema = new mongoose.Schema({
+  enabled: { type: Boolean, default: false },
+  ageLimit: { type: Number, min: 1, max: 18, default: 5 },
+  maxFreeChildren: { type: Number, min: 1, default: null },
+  requiresGuardian: { type: Boolean, default: false },
+}, { _id: false });
+
 const menuSchema = new mongoose.Schema({
   restaurantId: { type: String, required: true, trim: true, index: true },
   category: { type: String, required: true, enum: MENU_CATEGORIES, trim: true },
@@ -107,6 +114,7 @@ const menuSchema = new mongoose.Schema({
   dishes: { type: [String], default: [] },
   menuTimeSlots: { type: [String], default: [] },
   menuSections: { type: [menuSectionSchema], default: [] },
+  childPolicy: { type: childPolicySchema, default: () => ({}) },
   buffetDefaultsVersion: { type: Number, default: 0 },
   price: { type: Number, min: 0, default: 0 },
   priceNote: { type: String, default: "", trim: true, maxlength: 240 },

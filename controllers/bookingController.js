@@ -372,6 +372,29 @@ const csPaymentCaption = (booking) => [
   "Customer details are already saved on the Bookings page in this category section.",
   "Open Bookings → Pending payment verification to view the screenshot and verify.",
 ].join("\n");
+const pendingBookingCaption = (booking) => {
+  const advancePercent = Number(booking.advancePercent ?? 20);
+  const paymentStatus = advancePercent === 0
+    ? "No advance payment required; pending staff confirmation."
+    : "Payment not received yet; awaiting the advance payment.";
+  return [
+    "*New booking saved — payment pending*",
+    "",
+    "The customer has provided booking details. The booking is saved in the CRM as PENDING.",
+    "",
+    `Customer: ${booking.customerName || "Customer"}`,
+    `WhatsApp: +${digitsOnly(booking.customerPhone)}`,
+    ...bookingDetailLines(booking),
+    `Total bill: ${moneyPk(booking.totalAmount)}`,
+    advancePercent === 0
+      ? "Advance required: Rs 0"
+      : `Advance due: ${moneyPk(booking.advanceAmount)} (${advancePercent}%)`,
+    `Payment status: ${paymentStatus}`,
+    `Booking ID: ${booking._id}`,
+    "",
+    "Open Bookings → Pending payment verification to review this request.",
+  ].join("\n");
+};
 const eventPaymentCaption = (booking, type) => [
   `*${type === "wedding" ? "Wedding" : "Corporate"} payment proof received — please verify*`,
   "",
@@ -883,6 +906,16 @@ exports.createBookingFromWhatsApp = async (req, res) => {
     console.log("✅ Booking created:", booking._id);
 
     emitBooking(req, "new_booking", booking);
+    if (booking.status === "pending") {
+      void notifyCsTeam({
+        caption: pendingBookingCaption(booking),
+        restaurantId: assignedRestaurantId,
+        scheduleType: "booking_alert",
+        alertType: "booking_issue",
+      }).then((warning) => {
+        if (warning) console.error("New pending booking WhatsApp alert was not sent:", warning);
+      }).catch((error) => console.error("New pending booking WhatsApp alert failed:", error.message));
+    }
 
     let payment = paymentInstructions(booking);
     if (!payment || typeof payment !== "object") {

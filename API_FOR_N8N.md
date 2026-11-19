@@ -419,6 +419,7 @@ curl -X POST "https://YOUR_API_HOST/api/bookings/from-whatsapp" \
 
 Success response uses `{ "success": true, "message": "...", "data": <booking> }`. The created WhatsApp booking starts with `pending` status.
 `bookingCategory` identifies the configured menu category; `package` and `selectedItems` retain the exact customer selection, while `bookingDetails` stores confirmed category-specific answers. Do not send guessed item prices or details.
+When a new WhatsApp booking is saved as pending, the backend sends an English staff alert with the customer and booking details and the current payment state to the `booking_issue` WhatsApp recipient configured in CRM Support Workflow (or `WHATSAPP_CS_TEAM_NUMBER` when that field is blank). This alert does not create a Human Agent Request; payment-proof alerts remain separate.
 
 ## Attach a payment screenshot
 

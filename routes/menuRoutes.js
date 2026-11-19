@@ -14,6 +14,7 @@ router.post("/:category/offers", auth, controller.addOffer);
 router.put("/:category/offers/:offerId", auth, controller.updateOffer);
 router.delete("/:category/offers/:offerId", auth, controller.deleteOffer);
 router.patch("/:category/offers/:offerId/toggle", auth, controller.toggleOffer);
+router.put("/:category/child-policy", auth, controller.saveChildPolicy);
 router.get("/:category", auth, controller.getMenu);
 router.put("/:category", auth, controller.upsertMenu);
 router.delete("/:category", auth, controller.deleteMenu);

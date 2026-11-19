@@ -274,6 +274,45 @@ exports.toggleOffer = async (req, res) => {
   }
 };
 
+exports.saveChildPolicy = async (req, res) => {
+  try {
+    const { category } = req.params;
+    if (!req.body || typeof req.body !== "object" || Array.isArray(req.body)) {
+      return res.status(400).json({ success: false, message: "Child policy data is required." });
+    }
+    const { enabled, ageLimit, maxFreeChildren, requiresGuardian } = req.body;
+    if (!MENU_CATEGORIES.includes(category)) return res.status(400).json({ success: false, message: "Invalid menu category" });
+    if (typeof enabled !== "boolean" || typeof requiresGuardian !== "boolean") {
+      return res.status(400).json({ success: false, message: "Child policy needs enabled and requiresGuardian boolean values." });
+    }
+    if (!Number.isInteger(Number(ageLimit)) || Number(ageLimit) < 1 || Number(ageLimit) > 18) {
+      return res.status(400).json({ success: false, message: "Child age limit must be a whole number from 1 to 18." });
+    }
+    if (maxFreeChildren !== null && (!Number.isInteger(Number(maxFreeChildren)) || Number(maxFreeChildren) < 1 || Number(maxFreeChildren) > 1000)) {
+      return res.status(400).json({ success: false, message: "Maximum free children must be blank for no limit, or a whole number from 1 to 1000." });
+    }
+    const childPolicy = {
+      enabled,
+      ageLimit: Number(ageLimit),
+      maxFreeChildren: maxFreeChildren === null ? null : Number(maxFreeChildren),
+      requiresGuardian,
+    };
+    const menu = await Menu.findOneAndUpdate(
+      { restaurantId: req.admin.restaurantId, category },
+      {
+        $set: { childPolicy, updatedBy: req.admin._id },
+        $setOnInsert: { restaurantId: req.admin.restaurantId, category, isActive: false },
+      },
+      { upsert: true, new: true, runValidators: true, setDefaultsOnInsert: true }
+    );
+    emitMenuUpdate(req, menu, category);
+    res.json({ success: true, data: menu });
+  } catch (error) {
+    console.error("saveChildPolicy error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 exports.getPublicMenus = async (req, res) => {
   try {
     if (process.env.N8N_API_KEY && req.get("x-api-key") !== process.env.N8N_API_KEY) {
